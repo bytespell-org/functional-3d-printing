@@ -11,6 +11,15 @@ Create geometry that has a high probability of assembling and working after FDM 
 
 This skill produces CAD, validation, previews, calibration pieces, and process recommendations. It does not slice, upload, queue, or control a printer. Do not call printer APIs. Do not add a slicer dependency.
 
+## Mechanical truth gate
+
+Before proposing a joint, state what surface carries each required load and whether that surface can be printed in the chosen orientation.
+
+- A rotating lug can resist axial pull only when it passes under a retention surface. That underside is a roof in the print analysis. If no retention surface exists, the joint is not an axially captured bayonet.
+- A feature on a vertical wall can still start above empty space. Its location does not prove layer support.
+- At concept stage, call support-free behavior `unverified`. Claim support-free only after the print-oriented section, mesh audit, and `PrintPlan` show a supported path for every critical layer.
+- If function and support-free manufacture conflict, change the architecture. Do not hide the conflict with chamfers, small dimensions, or optimistic printer assumptions.
+
 ## Default stack
 
 - Use CadQuery for parametric B-rep CAD and STEP/STL export.
@@ -36,6 +45,8 @@ Read [references/sources-and-runtime.md](references/sources-and-runtime.md) befo
 10. Create or load a `FitProfile` only when useful. Do not ask the user for calibration data by default. If an uncertain fit controls success, propose a small fit or mechanism test only after the user approves the interface that it tests. Show the test, name the exact question it answers, state what it does not test, and explain how the result changes the full model. Ask before preparing it unless the user already requested a test.
 11. Use reusable primitives. Each feature must return geometry plus assumptions, dimensions, findings, and print notes.
 12. Apply FDM design rules. Treat a supported layer path as the default. Allow printing above empty space only for a declared short bridge with supported anchors at both ends or for a reviewed removable-support plan. Align load-bearing flexures with layers. Protect precision faces from support. Replace steep unsupported surfaces, trapped roofs, one-ended ledges, and unsupported capture lips with chamfers, arches, teardrops, open edges, supported ramps, or split parts.
+    - Gotcha: a bayonet or twist-lock track usually creates a roof, capture lip, or slot closure. Do not call it support-free because the slot is small or hidden. Treat every track roof as a precision bridge candidate. Prefer an open-edge track, supported ramp, separate ring, split part, or another closure when the retention face would print above empty space.
+    - Evidence rule: at concept stage, mark support-free behavior `unverified`. Do not claim zero supports, no horizontal overhangs, or a printable hidden track until the actual print-oriented geometry has a section view, mesh audit, and reviewed `PrintPlan`.
 13. Build a `DesignBundle` with named parts and an `AssemblyGraph`. Record every interface and insertion direction. Add final-state interference and insertion-path checks for every mating part pair.
 14. Select a generated-output directory. Prefer an explicit caller path. Otherwise use the tool's project build default. Do not generate beside editable source without explicit `--in-place` intent. Do not edit project ignore files.
 15. Run `scripts/run_model.py`. Inspect each generated `*.mesh-audit.json` and the manifest's `printability_audit`. Reject invalid solids, wrong solid counts, mesh faults, missing assembly data, unresolved horizontal candidates, and `BLOCKING` findings. Do not accept a model-authored “support-free” claim as evidence.
@@ -135,6 +146,8 @@ Do not declare the design ready when any condition applies:
 - A precision interface is support-sensitive without a validated reason.
 - A print-oriented part lacks a reviewed `PrintPlan`.
 - A support-free claim has unresolved horizontal candidates or undeclared spans.
+- A support-free claim is based only on a concept description, feature location, or valid solid instead of exported-orientation evidence.
+- A captured bayonet lug has no modeled axial retention roof, or its retention roof has no supported-layer plan.
 - A declared bridge lacks supported anchors at both ends, numeric span, or review evidence.
 - A steep unsupported region controls fit, locking, movement, sealing, optical quality, or user safety.
 - A trapped cavity requires inaccessible support.

@@ -17,6 +17,8 @@ from functional_fdm import (  # noqa: E402
     FitProfile,
     InterfaceSpec,
     PrintPlan,
+    ReviewAnnotation,
+    DesignDelta,
     Severity,
     check_assembly_insertion_path,
     check_assembly_interference,
@@ -130,6 +132,43 @@ def main() -> int:
             "findings": [f.as_dict() for f in roof.findings],
             "one_ended_lip": [f.as_dict() for f in one_ended_lip.validate()],
         },
+    )
+
+    track_roof = BridgeSpec(
+        "bayonet-track-roof",
+        8.0,
+        2.0,
+        True,
+        "The exported upright track closes across two supported ends.",
+        critical_surface=True,
+    )
+    case(
+        "bayonet-track-roof",
+        any(f.code == "print-plan.bridge.critical-surface" for f in track_roof.validate()),
+        {"findings": [f.as_dict() for f in track_roof.validate()]},
+    )
+
+    annotation = ReviewAnnotation(
+        "usb-c-opening",
+        "USB-C opening center",
+        (26.6, 0.0, 6.2),
+        part="base",
+    )
+    delta = DesignDelta(
+        "usb-c-opening",
+        "center_z",
+        7.2,
+        6.2,
+        "mm",
+        "-Z toward base",
+        "Align the opening with the connector center.",
+    )
+    case(
+        "annotated-position-revision",
+        not annotation.validate({"base"})
+        and not delta.validate({"usb-c-opening"})
+        and delta.as_dict()["delta"] == -1.0,
+        {"annotation": annotation.as_dict(), "delta": delta.as_dict()},
     )
 
     if args.geometry:

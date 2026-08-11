@@ -99,6 +99,29 @@
         "split option",
         "precision face protection"
       ]
+    },
+    {
+      "id": "bayonet-track-roof",
+      "prompt": "Design a smooth cylindrical support-free twist-lock lid without external tabs or screw ears.",
+      "criteria": [
+        "track roof identified",
+        "captured-lug force path explained",
+        "retention face treated as precision geometry",
+        "open-edge or split alternative",
+        "declared bridge evidence when retained",
+        "small mechanism test before full body"
+      ]
+    },
+    {
+      "id": "annotated-position-revision",
+      "prompt": "Move a USB-C opening from Z 7.2 mm to Z 6.2 mm and show the revision for confirmation.",
+      "criteria": [
+        "stable feature identifier",
+        "defined coordinate frame",
+        "numeric before and after",
+        "signed delta and direction",
+        "visual approval before physical test"
+      ]
     }
   ]
 }
