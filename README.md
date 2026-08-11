@@ -10,9 +10,9 @@ The browser review gives each critical feature a stable name and shows proposed 
 
 ![Annotated 3D review with named enclosure features and proposed changes](docs/images/annotated-review-overview.png)
 
-Transparent mode shows internal features, clearances, and reference axes.
+Exploded mode separates the enclosure base and display lid while it keeps their shared review labels visible.
 
-![Transparent annotated 3D review showing internal standoffs and access openings](docs/images/annotated-review-transparent.png)
+![Exploded annotated 3D review showing the enclosure base and display lid](docs/images/annotated-review-exploded.png)
 
 It is meant for parts such as:
 
