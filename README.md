@@ -4,6 +4,16 @@ An agent skill for designing small mechanical parts that can survive contact wit
 
 The skill uses CadQuery to build editable solid models. It checks fits, assembly paths, fasteners, print orientation, unsupported geometry, and the difference between a CAD claim and a tested physical result. It produces STEP and STL files, static diagnostic renders, an annotated Three.js review page, and concise build notes.
 
+## Annotated 3D review
+
+The browser review gives each critical feature a stable name and shows proposed numeric changes before fabrication.
+
+![Annotated 3D review with named enclosure features and proposed changes](docs/images/annotated-review-overview.png)
+
+Transparent mode shows internal features, clearances, and reference axes.
+
+![Transparent annotated 3D review showing internal standoffs and access openings](docs/images/annotated-review-transparent.png)
+
 It is meant for parts such as:
 
 - electronics enclosures and removable covers;
@@ -30,18 +40,9 @@ Most generated CAD workflows stop when a solid is valid. This skill keeps checki
 
 The skill blocks a design when required evidence is missing. It records assumptions instead of presenting them as measurements.
 
-## Workflow
+## How it works
 
-1. Record the intended function and all supplied dimensions in the editable model.
-2. Propose an assembly architecture without making the user answer every minor question first.
-3. Ask before the design depends on unconfirmed hardware or material.
-4. Generate CadQuery geometry and named assembly interfaces.
-5. Check dimensions, collisions, insertion paths, tool access, and FDM risks.
-6. Render static views and an interactive browser preview.
-7. Label important features with stable names and show numeric before-and-after design changes.
-8. Get visual approval before recommending a physical test.
-9. Use the smallest test that preserves the uncertain fit, load path, and print orientation.
-10. Record the result and update the model before building the complete object.
+The agent records the known dimensions, proposes a design, checks the mechanics and FDM risks, and shows an annotated preview. It then recommends a small physical test for any uncertain fit or mechanism. It does not call a function proven until a physical test confirms it.
 
 ## Interactive review
 
@@ -57,18 +58,13 @@ The generated Three.js preview includes:
 
 The shared coordinate vocabulary prevents camera-dependent requests such as “move the hole lower.” A revision can instead say: `usb-c-opening center_z: 7.2 → 6.2 mm, -1.0 mm in -Z toward the base`.
 
-## Install
+## How to install
 
-The repository root is the skill root. Clone it into your Codex skills directory:
+The easiest way to install the skill is to paste this into ChatGPT, Claude Code, Codex, or your preferred coding agent:
 
-```bash
-git clone https://github.com/bytespell-org/functional-3d-printing.git \
-  "${CODEX_HOME:-$HOME/.codex}/skills/functional-3d-printing"
+```text
+Install the /functional-3d-printing skill globally from https://github.com/bytespell-org/functional-3d-printing
 ```
-
-The repository is currently private. GitHub authentication is required until its visibility changes.
-
-You can also ask a compatible agent to install the skill from this repository URL.
 
 ## CAD runtime
 
@@ -104,36 +100,10 @@ python /path/to/functional-3d-printing/scripts/serve_preview.py \
   --open
 ```
 
-## Validate the skill
-
-The dependency-free checks run without CadQuery:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python scripts/self_test.py
-PYTHONDONTWRITEBYTECODE=1 python benchmarks/run_benchmarks.py
-PYTHONDONTWRITEBYTECODE=1 python scripts/validate_portability.py .
-```
-
-The benchmark suite covers snap fits, small screw bosses, magnets, sliders, press fits, printed threads, clips, inserts, support avoidance, and joint metadata.
-
-## Repository layout
-
-```text
-SKILL.md                   Agent workflow and stop conditions
-functional_fdm/            Reusable metadata, validation, and CAD primitives
-scripts/                   Execution, mesh audit, rendering, preview, and tests
-references/                FDM design and mechanical feature guidance
-assets/                    Starter model and browser preview
-benchmarks/                Functional design regression cases
-agents/openai.yaml         Skill interface metadata
-```
-
 ## Credits
 
 The source and license notes in [`references/sources-and-runtime.md`](references/sources-and-runtime.md) identify the CAD libraries and engineering references used during development.
 
-The README was edited with the concrete-writing rules from Peter Yang's MIT-licensed [No AI Slop](https://github.com/petergyang/no-ai-slop) skill. No No AI Slop code is bundled here.
-
 ## License
 
-No license has been selected. The repository is private. Choose a license before making it public.
+MIT. See [LICENSE](LICENSE).
