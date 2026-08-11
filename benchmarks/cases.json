@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "snap-box",
+      "prompt": "70x40x20 mm PETG electronics enclosure with a removable snap lid, four PCB standoffs, and a USB-C opening.",
+      "criteria": [
+        "snap strain margin",
+        "layer-aware snap orientation",
+        "calibrated lid clearance",
+        "support-free USB opening",
+        "PCB screw and driver access"
+      ]
+    },
+    {
+      "id": "tiny-screw-enclosure",
+      "prompt": "40 mm square enclosure joined by four M2 screws.",
+      "criteria": [
+        "standards-based clearance holes",
+        "boss radial wall",
+        "head clearance",
+        "screw reach",
+        "tool access"
+      ]
+    },
+    {
+      "id": "magnet-latch",
+      "prompt": "Two-piece case closed by four measured 6x2 mm magnets.",
+      "criteria": [
+        "measured pocket fit",
+        "retention",
+        "bottom wall",
+        "polarity",
+        "paired alignment"
+      ]
+    },
+    {
+      "id": "slider",
+      "prompt": "Carriage that slides on a printed rail without excessive wobble.",
+      "criteria": [
+        "profile-based clearance",
+        "small fit test when uncertain",
+        "lead-in",
+        "travel stop",
+        "support-free sliding faces"
+      ]
+    },
+    {
+      "id": "press-fit-shaft",
+      "prompt": "Knob that presses onto a measured shaft.",
+      "criteria": [
+        "measured shaft",
+        "material/profile awareness",
+        "variant fit test",
+        "lead-in",
+        "split-risk check"
+      ]
+    },
+    {
+      "id": "printed-threads",
+      "prompt": "Small jar with a printable screw-on lid.",
+      "criteria": [
+        "male/female radial clearance",
+        "pitch versus layer height",
+        "lead-in",
+        "cycle count",
+        "small fit test"
+      ]
+    },
+    {
+      "id": "cantilever-clip",
+      "prompt": "Reusable clip for a 3 mm plate.",
+      "criteria": [
+        "estimated strain",
+        "root fillet",
+        "taper",
+        "entry and retention angles",
+        "build-plane flex"
+      ]
+    },
+    {
+      "id": "heat-set-insert",
+      "prompt": "Bracket mounted by an M3 screw into a specified heat-set insert.",
+      "criteria": [
+        "known insert model",
+        "cq_warehouse pocket",
+        "surrounding wall",
+        "tool access",
+        "bottom relief"
+      ]
+    },
+    {
+      "id": "support-avoidance",
+      "prompt": "Redesign an internal horizontal roof and a one-ended capture lip that would otherwise print above empty space.",
+      "criteria": [
+        "risk classification",
+        "open-edge option",
+        "chamfer/arch option",
+        "split option",
+        "precision face protection"
+      ]
+    }
+  ]
+}

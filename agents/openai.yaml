@@ -1,0 +1,4 @@
+interface:
+  display_name: "Functional FDM Mechanical CAD"
+  short_description: "Design and test functional FDM assemblies"
+  default_prompt: "Use $functional-3d-printing to develop a functional FDM part through measured requirements, visible CAD proposals, low-cost mechanism tests, and validated STEP/STL delivery."

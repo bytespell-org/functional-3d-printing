@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Functional CAD Preview</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1 id="title">Functional CAD Preview</h1>
+        <p id="status">Loading model…</p>
+      </div>
+      <div class="toolbar">
+        <button id="fit">Fit</button>
+        <button id="reset">Reset</button>
+        <button id="camera">Orthographic</button>
+        <button id="wireframe">Wireframe</button>
+        <button id="transparent">Transparent</button>
+        <button id="grid">Grid</button>
+        <button id="axes">Axes</button>
+        <button id="annotations" class="active">Annotations</button>
+        <button id="measure">Measure</button>
+      </div>
+    </header>
+    <main>
+      <aside>
+        <h2>Components</h2>
+        <div id="parts"></div>
+        <section class="review-section">
+          <h2>Shared vocabulary</h2>
+          <div id="annotation-list"></div>
+        </section>
+        <section class="review-section">
+          <h2>Proposed changes</h2>
+          <div id="delta-list"></div>
+        </section>
+        <label for="explode">Exploded view</label>
+        <input id="explode" type="range" min="0" max="1" value="0" step="0.01" />
+        <section class="measurement">
+          <h2>Measurement</h2>
+          <p id="measurement">Select Measure, then click two surface points.</p>
+          <button id="clear-measurement">Clear</button>
+        </section>
+      </aside>
+      <div id="viewport"><div id="annotation-layer"></div></div>
+    </main>
+    <script type="module" src="viewer.js"></script>
+  </body>
+</html>

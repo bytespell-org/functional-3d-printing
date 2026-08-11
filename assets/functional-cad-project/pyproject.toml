@@ -1,0 +1,8 @@
+[project]
+name = "functional-cad-project"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "cadquery==2.8.0",
+  "cq-warehouse @ git+https://github.com/gumyr/cq_warehouse.git@daa46507ecc429c0e2dce11d9d5ffd09b12a42af",
+]

@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Run semantic and optional CadQuery benchmarks for functional FDM primitives."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SKILL_ROOT))
+
+from functional_fdm import (  # noqa: E402
+    AssemblyGraph,
+    BridgeSpec,
+    FitProfile,
+    InterfaceSpec,
+    PrintPlan,
+    Severity,
+    check_assembly_insertion_path,
+    check_assembly_interference,
+    check_fastener_stack,
+    check_linear_travel,
+    check_tool_access,
+)
+from functional_fdm.primitives import (  # noqa: E402
+    annular_snap_pair,
+    cantilever_snap,
+    fit_coupon,
+    fit_pair,
+    heat_set_insert_hole,
+    living_hinge,
+    magnet_pocket,
+    pcb_standoff,
+    printed_thread_pair,
+    pin_hinge_pair,
+    self_tapping_boss,
+    sliding_rail_pair,
+    tongue_and_groove_pair,
+)
+from functional_fdm.validation import classify_overhang  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--geometry", action="store_true", help="Require CadQuery/cq_warehouse geometry checks.")
+    args = parser.parse_args()
+    profile = FitProfile(printer="benchmark", material="PETG", characterized=False)
+    results: list[dict[str, object]] = []
+
+    def blocked(feature: object) -> bool:
+        findings = feature.findings
+        if args.geometry:
+            return any(finding.severity >= Severity.BLOCKING for finding in findings)
+        return any(
+            finding.severity >= Severity.BLOCKING
+            and not finding.code.startswith("dependency.")
+            and not finding.code.endswith(".library-error")
+            for finding in findings
+        )
+
+    def case(identifier: str, condition: bool, evidence: object) -> None:
+        results.append({"id": identifier, "ok": bool(condition), "evidence": evidence})
+
+    snap = cantilever_snap(
+        engagement_mm=0.6,
+        beam_length_mm=20,
+        beam_width_mm=7,
+        root_thickness_mm=1.2,
+        material="PETG",
+        reusable=True,
+        layer_orientation="in-plane",
+    )
+    graph = AssemblyGraph({"base", "lid"})
+    graph.add_interface(InterfaceSpec("lid-snap", "base", "lid", "cantilever-snap", {"engagement_mm": 0.6}, "snap", (0, 0, -1), True, 100))
+    case("snap-box", not blocked(snap) and not graph.validate(), snap.as_dict())
+
+    boss = self_tapping_boss(pilot_diameter_mm=1.7, outer_diameter_mm=5.5, height_mm=7, profile=profile, screw_length_mm=6, floor_clearance_mm=1)
+    standoff = pcb_standoff(height_mm=5, outer_diameter_mm=5.5, hole_diameter_mm=2.2, profile=profile)
+    stack = check_fastener_stack(screw_length_mm=6, through_stack_mm=1.6, required_engagement_mm=3, available_thread_depth_mm=5, protected_clearance_mm=0.4)
+    tool = check_tool_access(tool_diameter_mm=5, access_diameter_mm=6, approach_length_mm=20, obstruction_distance_mm=25)
+    case("tiny-screw-enclosure", not blocked(boss) and not blocked(standoff) and not stack and not tool, {"boss": boss.as_dict(), "standoff": standoff.as_dict(), "stack": [item.as_dict() for item in stack], "tool": [item.as_dict() for item in tool]})
+
+    unknown_polarity = magnet_pocket(diameter_mm=6, thickness_mm=2, profile=profile, retention="press-fit", polarity="unknown")
+    marked_polarity = magnet_pocket(diameter_mm=6, thickness_mm=2, profile=profile, retention="adhesive", polarity="north-out")
+    case("magnet-latch", blocked(unknown_polarity) and not blocked(marked_polarity), {"unknown": unknown_polarity.as_dict(), "marked": marked_polarity.as_dict()})
+
+    rail = sliding_rail_pair(8, 3, 30, profile)
+    travel = check_linear_travel(required_travel_mm=20, available_travel_mm=22, end_clearance_mm=1)
+    case("slider", any(finding.code == "fit.rail.uncalibrated" for finding in rail.findings) and not travel, rail.as_dict())
+
+    press = fit_pair(6, "press", profile)
+    coupon = fit_coupon(6, profile)
+    case("press-fit-shaft", any(finding.code == "fit.uncalibrated-critical" for finding in press.findings) and (coupon.geometry is not None or not args.geometry), {"fit": press.as_dict(), "coupon": coupon.as_dict()})
+
+    thread = printed_thread_pair(major_diameter_mm=12, pitch_mm=1.5, length_mm=8, profile=profile, layer_height_mm=0.2)
+    case("printed-threads", (not args.geometry) or (not blocked(thread) and thread.geometry is not None), thread.as_dict())
+
+    weak_clip = cantilever_snap(engagement_mm=1.0, beam_length_mm=12, beam_width_mm=5, root_thickness_mm=2.0, material="PETG", reusable=True, layer_orientation="across-layers")
+    case("cantilever-clip", any(finding.code == "snap.orientation.weak-z" for finding in weak_clip.findings), weak_clip.as_dict())
+
+    if args.geometry:
+        import cadquery as cq
+        from cq_warehouse.fastener import HeatSetNut
+        insert = HeatSetNut(size="M3-0.5-Standard", fastener_type="McMaster-Carr")
+        target = cq.Workplane("XY").box(12, 12, 8).faces(">Z").workplane()
+        insert_feature = heat_set_insert_hole(target, insert, profile, depth_mm=5)
+        insert_ok = not blocked(insert_feature) and insert_feature.geometry is not None
+        insert_evidence = insert_feature.as_dict()
+    else:
+        insert_ok = True
+        insert_evidence = "Geometry check skipped. Use --geometry in the CadQuery environment."
+    case("heat-set-insert", insert_ok, insert_evidence)
+
+    roof = classify_overhang(90, 20, profile, is_bridge=False, precision_surface=True)
+    one_ended_lip = PrintPlan(
+        support_mode="none",
+        reviewed=True,
+        review_evidence="The lip is attached to one wall.",
+        bridges=(BridgeSpec("capture-lip", 3.0, 20.0, False, "One wall supports the lip."),),
+    )
+    case(
+        "support-avoidance",
+        roof.classification == "IMPOSSIBLE_IN_CURRENT_ORIENTATION"
+        and any(f.severity >= Severity.BLOCKING for f in roof.findings)
+        and any(f.code == "print-plan.bridge.not-bridge" for f in one_ended_lip.validate()),
+        {
+            "classification": roof.classification,
+            "findings": [f.as_dict() for f in roof.findings],
+            "one_ended_lip": [f.as_dict() for f in one_ended_lip.validate()],
+        },
+    )
+
+    if args.geometry:
+        import cadquery as cq
+
+        fixed = cq.Workplane("XY").box(10, 10, 10)
+        colliding = cq.Workplane("XY").box(10, 10, 10).translate((5, 0, 0))
+        clear = cq.Workplane("XY").box(10, 10, 10).translate((10.1, 0, 0))
+        collision = check_assembly_interference(part_a="fixed", geometry_a=fixed, part_b="moving", geometry_b=colliding)
+        final_clear = check_assembly_interference(part_a="fixed", geometry_a=fixed, part_b="moving", geometry_b=clear)
+        path_clear = check_assembly_insertion_path(
+            fixed_part="fixed",
+            fixed_geometry=fixed,
+            moving_part="moving",
+            moving_geometry=clear,
+            insertion_direction=(-1, 0, 0),
+            approach_distance_mm=8,
+        )
+        collision_ok = not collision.passed and final_clear.passed and path_clear.passed
+        collision_evidence = {
+            "collision": collision.as_dict(),
+            "final_clear": final_clear.as_dict(),
+            "path_clear": path_clear.as_dict(),
+        }
+    else:
+        collision_ok = True
+        collision_evidence = "Geometry check skipped. Use --geometry in the CadQuery environment."
+    case("assembly-interference", collision_ok, collision_evidence)
+
+    annular = annular_snap_pair(nominal_diameter_mm=50, bead_height_mm=0.5, bead_width_mm=1.2, wall_thickness_mm=1.8, profile=profile, split_ring=True)
+    tongue = tongue_and_groove_pair(tongue_width_mm=2, tongue_height_mm=1.5, length_mm=20, profile=profile)
+    hinge = pin_hinge_pair(pin_diameter_mm=2, barrel_outer_diameter_mm=6, knuckle_length_mm=8, profile=profile)
+    living = living_hinge(length_mm=20, width_mm=8, thickness_mm=0.5, material="PLA", expected_cycles=100)
+    mechanisms_ok = not blocked(annular) and not blocked(tongue) and not blocked(hinge) and blocked(living)
+    if args.geometry:
+        mechanisms_ok = mechanisms_ok and all(feature.geometry is not None for feature in (annular, tongue, hinge))
+    case("joint-library", mechanisms_ok, {"annular": annular.as_dict(), "tongue": tongue.as_dict(), "hinge": hinge.as_dict(), "living_hinge_rejection": living.as_dict()})
+
+    failures = [result for result in results if not result["ok"]]
+    print(json.dumps({"ok": not failures, "cases": results, "failures": failures}, indent=2))
+    return 0 if not failures else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
