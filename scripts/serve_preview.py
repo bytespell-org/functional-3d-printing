@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve an interactive preview folder for local or shared review."""
+"""Serve a CAD workbench durably and report LAN-reachable review URLs."""
 
 from __future__ import annotations
 
@@ -7,44 +7,234 @@ import argparse
 import functools
 import http.server
 import json
+import math
+import os
 import socket
+import subprocess
 import sys
+import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
 
-def reachable_hosts(bind_host: str) -> list[str]:
+class PreviewHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args: object, progress_path: Path, manifest_path: Path, **kwargs: object) -> None:
+        self.progress_path = progress_path
+        self.manifest_path = manifest_path
+        super().__init__(*args, **kwargs)
+
+    def send_json(self, status: int, value: object) -> None:
+        payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+        self.wfile.flush()
+
+    def do_POST(self) -> None:
+        if self.path.partition("?")[0] != "/api/review-comments":
+            self.send_json(404, {"ok": False, "error": "Unknown endpoint."})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 16_384:
+                raise ValueError("Comment request must be between 1 byte and 16 KB.")
+            value = json.loads(self.rfile.read(length))
+            if not isinstance(value, dict):
+                raise ValueError("Comment request must be a JSON object.")
+            message = value.get("message")
+            part = value.get("part")
+            position = value.get("position_mm")
+            if not isinstance(message, str) or not message.strip() or len(message) > 2_000:
+                raise ValueError("Comment text must contain 1 to 2,000 characters.")
+            if not isinstance(part, str) or not part:
+                raise ValueError("A model part is required.")
+            if (
+                not isinstance(position, list)
+                or len(position) != 3
+                or any(not isinstance(item, (int, float)) or not math.isfinite(item) for item in position)
+            ):
+                raise ValueError("position_mm must contain three finite numbers.")
+            manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            part_names = {item.get("name") for item in manifest.get("parts", []) if isinstance(item, dict)}
+            if part not in part_names:
+                raise ValueError(f"Unknown model part: {part}")
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("update_progress.py")),
+                "review-add",
+                str(self.progress_path),
+                "--part",
+                part,
+                "--position",
+                *(str(item) for item in position),
+                "--message",
+                message.strip(),
+                "--author",
+                "user",
+            ]
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip() or "Unable to record comment."
+                raise ValueError(detail)
+            self.send_json(201, {"ok": True})
+        except (ValueError, json.JSONDecodeError, OSError) as error:
+            self.send_json(400, {"ok": False, "error": str(error)})
+
+    def end_headers(self) -> None:
+        clean_path = self.path.partition("?")[0]
+        if clean_path.endswith(("/", ".html", ".js", ".css", ".json")):
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
+
+
+class PreviewServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def lan_hosts(bind_host: str) -> list[str]:
     if bind_host not in {"0.0.0.0", "::"}:
-        return [bind_host]
-    hosts = {"127.0.0.1"}
+        return [] if bind_host.startswith("127.") or bind_host == "localhost" else [bind_host]
+    hosts: set[str] = set()
     try:
-        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            address = item[4][0]
-            if address and not address.startswith("127."):
-                hosts.add(address)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("8.8.8.8", 80))
+        hosts.add(probe.getsockname()[0])
+        probe.close()
     except OSError:
         pass
-    return sorted(hosts, key=lambda value: (value.startswith("127."), value))
+    try:
+        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            hosts.add(item[4][0])
+    except OSError:
+        pass
+    return sorted(
+        address
+        for address in hosts
+        if address and not address.startswith(("127.", "169.254.")) and address != "0.0.0.0"
+    )
+
+
+def resolve_preview(path: Path) -> tuple[Path, Path, str]:
+    preview = path.resolve()
+    if not (preview / "index.html").is_file() and (preview / "preview" / "index.html").is_file():
+        preview = preview / "preview"
+    if not (preview / "index.html").is_file():
+        raise ValueError("Preview folder does not contain index.html.")
+    root = preview.parent
+    return preview, root, f"/{preview.name}/"
+
+
+def write_json(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def daemonize(args: argparse.Namespace, preview: Path) -> int:
+    info_file = (args.info_file or preview.parent / ".preview-server.json").resolve()
+    pid_file = (args.pid_file or preview.parent / ".preview-server.pid").resolve()
+    log_file = (args.log_file or preview.parent / ".preview-server.log").resolve()
+    for stale in (info_file, pid_file):
+        stale.unlink(missing_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        str(preview),
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
+        "--info-file",
+        str(info_file),
+        "--pid-file",
+        str(pid_file),
+        "--log-file",
+        str(log_file),
+    ]
+    with log_file.open("ab", buffering=0) as log:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"Preview server exited during startup. Inspect {log_file}.")
+        if info_file.is_file():
+            info = json.loads(info_file.read_text(encoding="utf-8"))
+            urls = info.get("urls", [])
+            if urls:
+                try:
+                    with urllib.request.urlopen(urls[0], timeout=2) as response:
+                        if response.status == 200:
+                            info.update({"durable": True, "log_file": str(log_file), "pid_file": str(pid_file)})
+                            print(json.dumps(info, indent=2), flush=True)
+                            return 0
+                except OSError:
+                    pass
+        time.sleep(0.1)
+    process.terminate()
+    raise RuntimeError(f"Preview server did not become reachable. Inspect {log_file}.")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("preview", type=Path)
-    parser.add_argument("--host", default="127.0.0.1", help="Bind address. Use 0.0.0.0 only when network sharing is intended.")
-    parser.add_argument("--port", type=int, default=8765, help="TCP port. Use 0 to select a free port.")
-    parser.add_argument("--open", action="store_true")
-    parser.add_argument("--info-file", type=Path, help="Optional JSON file for server address and reachable URLs.")
+    parser.add_argument("--host", default="0.0.0.0", help="Bind address. The default exposes the workbench to the local network.")
+    parser.add_argument("--port", type=int, default=0, help="TCP port. The default selects a free port.")
+    parser.add_argument("--open", action="store_true", help="Open the first LAN URL in a browser.")
+    parser.add_argument("--daemon", action="store_true", help="Start a detached server that survives the calling agent process.")
+    parser.add_argument("--info-file", type=Path, help="JSON file for server address and reachable URLs.")
+    parser.add_argument("--pid-file", type=Path, help="File that records the detached server PID.")
+    parser.add_argument("--log-file", type=Path, help="File for detached server logs.")
     args = parser.parse_args()
-    if not (args.preview / "index.html").is_file():
-        raise ValueError("Preview folder does not contain index.html.")
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(args.preview))
-    server = http.server.ThreadingHTTPServer((args.host, args.port), handler)
+    preview, root, url_path = resolve_preview(args.preview)
+    if args.daemon:
+        return daemonize(args, preview)
+
+    hosts = lan_hosts(args.host)
+    if not hosts:
+        raise ValueError(
+            "No LAN address is available. Use the environment's approved port-sharing method; "
+            "do not hand the user a localhost URL."
+        )
+    handler = functools.partial(
+        PreviewHandler,
+        directory=str(root),
+        progress_path=preview.parent / "progress.json",
+        manifest_path=preview / "manifest.json",
+    )
+    server = PreviewServer((args.host, args.port), handler)
     port = int(server.server_address[1])
-    urls = [f"http://{host}:{port}/" for host in reachable_hosts(args.host)]
-    info = {"host": args.host, "port": port, "preview": str(args.preview.resolve()), "urls": urls}
+    urls = [f"http://{host}:{port}{url_path}" for host in hosts]
+    info = {
+        "host": args.host,
+        "port": port,
+        "pid": os.getpid(),
+        "preview": str(preview),
+        "progress": str(preview.parent / "progress.json"),
+        "urls": urls,
+    }
     if args.info_file:
-        args.info_file.parent.mkdir(parents=True, exist_ok=True)
-        args.info_file.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+        write_json(args.info_file.resolve(), info)
+    if args.pid_file:
+        args.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        args.pid_file.write_text(f"{os.getpid()}\n", encoding="utf-8")
     print(json.dumps(info), flush=True)
     if args.open:
         webbrowser.open(urls[0])
@@ -55,4 +245,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (ValueError, RuntimeError, OSError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, indent=2), file=sys.stderr)
+        sys.exit(2)

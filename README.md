@@ -1,12 +1,18 @@
-# Functional FDM Mechanical CAD
+# Functional 3D Printing
 
 An agent skill for designing small mechanical parts that can survive contact with a real FDM printer.
 
 The skill uses CadQuery to build editable solid models. It checks fits, assembly paths, fasteners, print orientation, unsupported geometry, and the difference between a CAD claim and a tested physical result. It produces STEP and STL files, static diagnostic renders, an annotated Three.js review page, and concise build notes.
 
-## Annotated 3D review
+## Observable 3D review
 
-The browser review gives each critical feature a stable name and shows proposed numeric changes before fabrication.
+The browser review gives each critical feature a stable name and shows proposed numeric changes before fabrication. It also keeps the agent's answers, assumptions, progress, and print learnings visible in the same place.
+
+![Observable 3D workbench with model annotations and live progress](docs/images/observable-workbench.jpg)
+
+The workbench reads an atomic `progress.json` sidecar every two seconds, so the human and the agent can review the same current record. The included launcher runs it as a durable background server and reports a local-network URL instead of a localhost-only address.
+
+## Annotated models
 
 ![Annotated 3D review with named enclosure features and proposed changes](docs/images/annotated-review-overview.png)
 

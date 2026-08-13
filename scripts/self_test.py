@@ -376,14 +376,76 @@ def main() -> int:
             ],
             0,
         )
-        for required in ("index.html", "viewer.js", "styles.css", "manifest.json"):
+        for required in ("index.html", "manifest.json"):
             if not (preview / required).is_file():
                 raise RuntimeError(f"Preview is missing {required}.")
+        if not list((preview / "assets").glob("*.js")):
+            raise RuntimeError("Preview is missing its compiled JavaScript bundle.")
+        if not list((preview / "assets").glob("*.css")):
+            raise RuntimeError("Preview is missing its compiled stylesheet.")
         preview_manifest = json.loads((preview / "manifest.json").read_text(encoding="utf-8"))
         if preview_manifest["annotations"][0]["id"] != "usb-c-opening":
             raise RuntimeError("Preview annotation data is missing.")
         if preview_manifest["deltas"][0]["review_status"] != "proposed":
             raise RuntimeError("Preview design delta data is missing.")
+        if preview_manifest["progress_url"] != "../progress.json":
+            raise RuntimeError("Preview does not point to the observable progress sidecar.")
+
+        progress = root / "progress.json"
+        progress_script = str(scripts / "update_progress.py")
+        run([sys.executable, progress_script, "init", str(progress), "--title", "Test enclosure"], 0)
+        run([
+            sys.executable, progress_script, "answer", str(progress),
+            "--id", "display-width", "--question", "Display width?",
+            "--answer", "46.2 mm", "--status", "confirmed",
+        ], 0)
+        run([
+            sys.executable, progress_script, "step", str(progress),
+            "--id", "visual-review", "--status", "in-progress",
+            "--summary", "Ready for review.", "--evidence", "preview/manifest.json",
+        ], 0)
+        run([
+            sys.executable, progress_script, "learning", str(progress),
+            "--id", "lid-path", "--statement", "Check the lid insertion path.",
+            "--evidence", "First prototype bound during assembly.",
+        ], 0)
+        run([
+            sys.executable, progress_script, "status", str(progress),
+            "--phase", "visual-review", "--status", "ready-for-review",
+            "--summary", "Review the annotated opening.",
+        ], 0)
+        run([
+            sys.executable, progress_script, "review-add", str(progress),
+            "--id", "review-usb-clearance", "--part", "test",
+            "--position", "0.25", "0.5", "0.75",
+            "--message", "Add a little more cable clearance.", "--author", "user",
+        ], 0)
+        run([
+            sys.executable, progress_script, "review-reply", str(progress),
+            "--id", "review-usb-clearance",
+            "--message", "I will increase the opening and rerun the fit check.",
+            "--author", "agent",
+        ], 0)
+        run([
+            sys.executable, progress_script, "review-status", str(progress),
+            "--id", "review-usb-clearance", "--status", "acknowledged",
+        ], 0)
+        progress_data = json.loads(progress.read_text(encoding="utf-8"))
+        if progress_data["answers"][0]["answer"] != "46.2 mm":
+            raise RuntimeError("Progress answer was not recorded.")
+        if progress_data["steps"][2]["evidence"] != ["preview/manifest.json"]:
+            raise RuntimeError("Progress evidence was not recorded.")
+        if progress_data["learnings"][0]["status"] != "candidate":
+            raise RuntimeError("Progress learning was not recorded.")
+        if progress_data["status"] != "ready-for-review":
+            raise RuntimeError("Overall progress status was not recorded.")
+        review_comment = progress_data["review_comments"][0]
+        if review_comment["position_mm"] != [0.25, 0.5, 0.75]:
+            raise RuntimeError("Model review point was not preserved.")
+        if review_comment["status"] != "acknowledged":
+            raise RuntimeError("Model review status was not updated.")
+        if review_comment["replies"][0]["author"] != "agent":
+            raise RuntimeError("Agent review reply was not recorded.")
 
         log = root / "iterations.jsonl"
         run([
@@ -405,7 +467,7 @@ def main() -> int:
         source.write_text("def build(): pass\n", encoding="utf-8")
         run(["git", "init", "-q", str(project)], 0)
         default_plan = resolve_output_plan(source)
-        expected_default = project / "build" / "functional-fdm" / "closure"
+        expected_default = (project / "build" / "functional-fdm" / "closure").resolve()
         if default_plan.path != expected_default or default_plan.mode != "project-default":
             raise RuntimeError("Project output did not use the generic build directory.")
         if default_plan.git_ignored or default_plan.git_tracked or not default_plan.warnings:
@@ -436,7 +498,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 23}, indent=2))
+    print(json.dumps({"ok": True, "tests": 28}, indent=2))
     return 0
 
 

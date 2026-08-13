@@ -28,7 +28,10 @@ FORBIDDEN_TEXT = (
     ("managed-session-id", re.compile(r"\bsession-[0-9a-f-]{16,}\b", re.IGNORECASE)),
     ("linux-home-path", re.compile(r"/(?:home|Users)/[^/\s'\"]+/")),
     ("windows-home-path", re.compile(r"[A-Za-z]:\\Users\\[^\\\s'\"]+\\")),
-    ("private-ipv4", re.compile(r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")),
+    # The final guard avoids treating longer dotted lookup tables in compiled
+    # dependencies (for example Three.js' hexadecimal UUID table) as an IPv4
+    # address while still catching an address followed by normal punctuation.
+    ("private-ipv4", re.compile(r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b(?!\.\d)")),
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
 )
 

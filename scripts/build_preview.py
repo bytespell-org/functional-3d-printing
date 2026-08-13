@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a self-contained project folder for the interactive STL preview."""
+"""Build the compiled Three.js workbench and its model manifest."""
 
 from __future__ import annotations
 
@@ -41,21 +41,23 @@ def main() -> int:
     parser.add_argument("--title", default="Functional CAD Preview")
     parser.add_argument("--annotation", action="append", default=[], type=parse_json_object)
     parser.add_argument("--delta", action="append", default=[], type=parse_json_object)
+    parser.add_argument("--progress-url", default="../progress.json")
     args = parser.parse_args()
 
     asset_root = Path(__file__).resolve().parents[1] / "assets" / "preview"
     output = args.output
+    if output.exists():
+        shutil.rmtree(output)
+    shutil.copytree(asset_root, output)
     model_dir = output / "models"
-    output.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
-    for filename in ("index.html", "viewer.js", "styles.css"):
-        shutil.copy2(asset_root / filename, output / filename)
 
     manifest = {
         "title": args.title,
         "parts": [],
         "annotations": args.annotation,
         "deltas": args.delta,
+        "progress_url": args.progress_url,
     }
     used_names: set[str] = set()
     for index, (name, path, color) in enumerate(args.part):

@@ -1,0 +1,909 @@
+import { useEffect, useRef, useState } from "react"
+import * as THREE from "three"
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js"
+
+import { Button } from "@/components/ui/button"
+import type { PreviewManifest, ReviewComment } from "@/types"
+
+type Projection = "ortho" | "perspective"
+type RenderMode = "solid" | "wire" | "xray"
+
+type ViewerApi = {
+  fit: () => void
+  setGrid: (visible: boolean) => void
+  setLabels: (visible: boolean) => void
+  setCommentMode: (enabled: boolean) => void
+  setMeasure: (enabled: boolean) => void
+  setPartVisible: (name: string, visible: boolean) => void
+  setProjection: (projection: Projection) => void
+  setRenderMode: (mode: RenderMode) => void
+  setReviewComments: (comments: ReviewComment[]) => void
+}
+
+function makeLabelSprite(text: string, color: string, height: number) {
+  const fontSize = 40
+  const paddingX = 22
+  const paddingY = 12
+  const canvas = document.createElement("canvas")
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Canvas labels are unavailable")
+  context.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+  const width = Math.ceil(context.measureText(text).width + paddingX * 2)
+  const canvasHeight = fontSize + paddingY * 2
+  canvas.width = width
+  canvas.height = canvasHeight
+  context.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+  context.fillStyle = "rgba(23, 21, 26, 0.94)"
+  context.strokeStyle = color
+  context.lineWidth = 3
+  context.beginPath()
+  context.roundRect(1.5, 1.5, width - 3, canvasHeight - 3, 16)
+  context.fill()
+  context.stroke()
+  context.fillStyle = "#fafafa"
+  context.textAlign = "center"
+  context.textBaseline = "middle"
+  context.fillText(text, width / 2, canvasHeight / 2 + 1)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearFilter
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.scale.set(height * (width / canvasHeight), height, 1)
+  return sprite
+}
+
+export function ThreeViewer({
+  manifest,
+  reviewComments,
+  onPickComment,
+  onOpenReview,
+}: {
+  manifest: PreviewManifest
+  reviewComments: ReviewComment[]
+  onPickComment: (anchor: {
+    part: string
+    position_mm: [number, number, number]
+  }) => void
+  onOpenReview: () => void
+}) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const apiRef = useRef<ViewerApi | null>(null)
+  const commentsRef = useRef(reviewComments)
+  const explodeRef = useRef<(value: number) => void>(() => undefined)
+  const visibilityRef = useRef(
+    new Map(manifest.parts.map((part) => [part.name, true]))
+  )
+  const [explode, setExplode] = useState(0)
+  const [grid, setGrid] = useState(true)
+  const [labels, setLabels] = useState(true)
+  const [comment, setComment] = useState(false)
+  const [measure, setMeasure] = useState(false)
+  const [projection, setProjection] = useState<Projection>("ortho")
+  const [renderMode, setRenderMode] = useState<RenderMode>("solid")
+  const [message, setMessage] = useState("Loading…")
+  const [partVisibility, setPartVisibility] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(manifest.parts.map((part) => [part.name, true]))
+  )
+
+  useEffect(() => {
+    commentsRef.current = reviewComments
+    apiRef.current?.setReviewComments(reviewComments)
+  }, [reviewComments])
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    host.replaceChildren()
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.setClearColor(0x17151a)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    host.appendChild(renderer.domElement)
+
+    const scene = new THREE.Scene()
+    const root = new THREE.Group()
+    scene.add(root)
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x332b39, 2.4))
+    const key = new THREE.DirectionalLight(0xfff7e8, 2.2)
+    key.position.set(4, -6, 8)
+    scene.add(key)
+
+    const cameras = {
+      perspective: new THREE.PerspectiveCamera(42, 1, 0.01, 100000),
+      ortho: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100000),
+    }
+    let camera: THREE.Camera = cameras.ortho
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.screenSpacePanning = true
+    // A one-finger OrbitControls rotation couples horizontal and vertical
+    // motion. Disable it so touch can use the Z-up turntable below. Keep the
+    // default two-finger dolly/pan gesture.
+    controls.touches.ONE = -1 as THREE.TOUCH
+
+    const gridHelper = new THREE.GridHelper(200, 40, 0x7c6579, 0x342d37)
+    gridHelper.rotation.x = Math.PI / 2
+    scene.add(gridHelper)
+
+    const meshes: THREE.Mesh[] = []
+    const meshByName = new Map<string, THREE.Mesh>()
+    const annotationGroups: THREE.Group[] = []
+    let reviewGroups: THREE.Group[] = []
+    const bounds = new THREE.Box3()
+    let measureMode = false
+    let commentMode = false
+    let labelsVisible = true
+    let initialView: {
+      center: THREE.Vector3
+      position: THREE.Vector3
+      orthoSize: number
+    } | null = null
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let measurePoints: THREE.Vector3[] = []
+    let measureLine: THREE.Line | null = null
+    let markers: THREE.Mesh[] = []
+    const touchPointers = new Set<number>()
+    let turntablePointer: number | null = null
+    let turntableX = 0
+
+    const disposeObject = (object: THREE.Object3D) => {
+      object.traverse((child) => {
+        if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
+          child.geometry.dispose()
+          const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material]
+          materials.forEach((material) => material.dispose())
+        }
+        if (child instanceof THREE.Sprite) {
+          child.material.map?.dispose()
+          child.material.dispose()
+        }
+      })
+    }
+
+    const drawReviewComments = (comments: ReviewComment[]) => {
+      reviewGroups.forEach((group) => {
+        group.removeFromParent()
+        disposeObject(group)
+      })
+      reviewGroups = []
+      comments.forEach((item, index) => {
+        const owner = meshByName.get(item.part)
+        if (!owner) return
+        const point = new THREE.Vector3(...item.position_mm)
+        const sphere = owner.geometry.boundingSphere
+        const radius = Math.max(sphere?.radius || 20, 1)
+        const offset = point.clone().sub(sphere?.center || new THREE.Vector3())
+        if (offset.lengthSq() < 0.0001) offset.set(0, 0, 1)
+        offset.normalize().multiplyScalar(Math.max(radius * 0.12, 2.5))
+        const color =
+          item.status === "resolved"
+            ? "#71717a"
+            : item.status === "acknowledged"
+              ? "#38bdf8"
+              : "#fbbf24"
+        const group = new THREE.Group()
+        group.position.copy(point)
+        group.visible = labelsVisible
+        const leader = new THREE.Mesh(
+          new THREE.CylinderGeometry(
+            Math.max(radius * 0.004, 0.1),
+            Math.max(radius * 0.004, 0.1),
+            offset.length(),
+            8
+          ),
+          new THREE.MeshBasicMaterial({ color, depthTest: true })
+        )
+        leader.position.copy(offset).multiplyScalar(0.5)
+        leader.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          offset.clone().normalize()
+        )
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(radius * 0.015, 0.2), 12, 8),
+          new THREE.MeshBasicMaterial({ color, depthTest: true })
+        )
+        const label = makeLabelSprite(
+          String(index + 1),
+          color,
+          Math.max(radius * 0.1, 2.5)
+        )
+        label.position.copy(offset)
+        group.add(leader, dot, label)
+        owner.add(group)
+        reviewGroups.push(group)
+      })
+    }
+
+    const updateOrtho = () => {
+      const aspect = Math.max(
+        host.clientWidth / Math.max(host.clientHeight, 1),
+        0.1
+      )
+      const size =
+        (initialView?.orthoSize || 100) / Math.min(Math.max(aspect, 0.1), 1)
+      Object.assign(cameras.ortho, {
+        left: -size * aspect,
+        right: size * aspect,
+        top: size,
+        bottom: -size,
+      })
+      cameras.ortho.updateProjectionMatrix()
+    }
+    const resize = () => {
+      const width = host.clientWidth
+      const height = host.clientHeight
+      // Keep the canvas's CSS box matched to the viewer host. With
+      // updateStyle=false, high-DPI drawing-buffer pixels become layout pixels
+      // in browsers that do not supply an external canvas size rule, leaving
+      // the correctly fitted model clipped in one corner of an oversized canvas.
+      renderer.setSize(width, height)
+      cameras.perspective.aspect = width / Math.max(height, 1)
+      cameras.perspective.updateProjectionMatrix()
+      updateOrtho()
+    }
+    const fit = () => {
+      bounds.makeEmpty()
+      meshes.forEach((mesh) => bounds.expandByObject(mesh))
+      if (bounds.isEmpty()) return
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere())
+      const center = sphere.center
+      const radius = Math.max(sphere.radius, 1)
+      const position = center
+        .clone()
+        .add(
+          new THREE.Vector3(1.3, -1.6, 1.1)
+            .normalize()
+            .multiplyScalar(radius * 3.2)
+        )
+      Object.values(cameras).forEach((item) => {
+        item.position.copy(position)
+        item.up.set(0, 0, 1)
+        item.lookAt(center)
+      })
+      controls.target.copy(center)
+      cameras.perspective.near = Math.max(radius / 1000, 0.01)
+      cameras.perspective.far = radius * 100
+      cameras.perspective.updateProjectionMatrix()
+      initialView = {
+        center: center.clone(),
+        position: position.clone(),
+        orthoSize: radius * 1.25,
+      }
+      updateOrtho()
+      controls.update()
+    }
+    const clearMeasure = () => {
+      measurePoints = []
+      markers.forEach((marker) => scene.remove(marker))
+      markers = []
+      if (measureLine) scene.remove(measureLine)
+      measureLine = null
+    }
+    const addMeasure = (point: THREE.Vector3) => {
+      if (measurePoints.length === 2) clearMeasure()
+      measurePoints.push(point.clone())
+      const radius = Math.max(
+        bounds.getBoundingSphere(new THREE.Sphere()).radius * 0.01,
+        0.15
+      )
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+      )
+      marker.position.copy(point)
+      scene.add(marker)
+      markers.push(marker)
+      if (measurePoints.length === 1) setMessage("Pick second point")
+      if (measurePoints.length === 2) {
+        measureLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(measurePoints),
+          new THREE.LineBasicMaterial({ color: 0xfbbf24 })
+        )
+        scene.add(measureLine)
+        setMessage(
+          `${measurePoints[0].distanceTo(measurePoints[1]).toFixed(3)} mm`
+        )
+      }
+    }
+    const pointerDown = (event: PointerEvent) => {
+      if (!measureMode && !commentMode) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      )
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObjects(
+        meshes.filter((mesh) => mesh.visible),
+        false
+      )[0]
+      if (!hit) return
+      if (measureMode) {
+        addMeasure(hit.point)
+        return
+      }
+      const owner = hit.object as THREE.Mesh
+      const localPoint = owner.worldToLocal(hit.point.clone())
+      onPickComment({
+        part: owner.name,
+        position_mm: [localPoint.x, localPoint.y, localPoint.z],
+      })
+      commentMode = false
+      controls.enabled = true
+      setComment(false)
+      setMessage("")
+    }
+    renderer.domElement.addEventListener("pointerdown", pointerDown)
+
+    const turntableDown = (event: PointerEvent) => {
+      if (event.pointerType !== "touch") return
+      touchPointers.add(event.pointerId)
+      if (touchPointers.size === 1 && !measureMode && !commentMode) {
+        turntablePointer = event.pointerId
+        turntableX = event.clientX
+      } else {
+        turntablePointer = null
+      }
+    }
+    const turntableMove = (event: PointerEvent) => {
+      if (event.pointerId !== turntablePointer || touchPointers.size !== 1)
+        return
+      const deltaX = event.clientX - turntableX
+      turntableX = event.clientX
+      if (Math.abs(deltaX) < 0.01) return
+      const offset = camera.position.clone().sub(controls.target)
+      offset.applyAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        (-deltaX / Math.max(renderer.domElement.clientWidth, 1)) *
+          Math.PI *
+          1.35
+      )
+      camera.position.copy(controls.target).add(offset)
+      camera.up.set(0, 0, 1)
+      camera.lookAt(controls.target)
+      controls.update()
+    }
+    const turntableEnd = (event: PointerEvent) => {
+      touchPointers.delete(event.pointerId)
+      if (event.pointerId === turntablePointer) turntablePointer = null
+    }
+    const narrowMouseDown = (event: PointerEvent) => {
+      if (
+        event.pointerType !== "mouse" ||
+        renderer.domElement.clientWidth >= 1024 ||
+        measureMode ||
+        commentMode
+      )
+        return
+      event.stopImmediatePropagation()
+      touchPointers.add(event.pointerId)
+      turntablePointer = event.pointerId
+      turntableX = event.clientX
+      renderer.domElement.setPointerCapture(event.pointerId)
+    }
+    const narrowMouseMove = (event: PointerEvent) => {
+      if (
+        event.pointerType !== "mouse" ||
+        renderer.domElement.clientWidth >= 1024 ||
+        event.pointerId !== turntablePointer
+      )
+        return
+      event.stopImmediatePropagation()
+      turntableMove(event)
+    }
+    const narrowMouseEnd = (event: PointerEvent) => {
+      if (
+        event.pointerType !== "mouse" ||
+        renderer.domElement.clientWidth >= 1024 ||
+        event.pointerId !== turntablePointer
+      )
+        return
+      event.stopImmediatePropagation()
+      turntableEnd(event)
+    }
+    renderer.domElement.addEventListener("pointerdown", narrowMouseDown, true)
+    renderer.domElement.addEventListener("pointermove", narrowMouseMove, true)
+    renderer.domElement.addEventListener("pointerup", narrowMouseEnd, true)
+    renderer.domElement.addEventListener("pointercancel", narrowMouseEnd, true)
+    renderer.domElement.addEventListener("pointerdown", turntableDown)
+    renderer.domElement.addEventListener("pointermove", turntableMove)
+    renderer.domElement.addEventListener("pointerup", turntableEnd)
+    renderer.domElement.addEventListener("pointercancel", turntableEnd)
+
+    apiRef.current = {
+      fit,
+      setProjection: (next) => {
+        const previous = camera
+        camera = cameras[next]
+        camera.position.copy(previous.position)
+        camera.quaternion.copy(previous.quaternion)
+        controls.object = camera
+        updateOrtho()
+        controls.update()
+      },
+      setRenderMode: (mode) => {
+        meshes.forEach((mesh) => {
+          const material = mesh.material as THREE.MeshStandardMaterial
+          material.wireframe = mode === "wire"
+          material.transparent = mode === "xray"
+          material.opacity = mode === "xray" ? 0.28 : 1
+          material.depthWrite = mode !== "xray"
+          material.needsUpdate = true
+        })
+      },
+      setGrid: (visible) => {
+        gridHelper.visible = visible
+      },
+      setLabels: (visible) => {
+        labelsVisible = visible
+        annotationGroups.forEach((group) => {
+          group.visible = visible
+        })
+        reviewGroups.forEach((group) => {
+          group.visible = visible
+        })
+      },
+      setCommentMode: (enabled) => {
+        commentMode = enabled
+        if (enabled) measureMode = false
+        controls.enabled = !enabled
+        setMessage(enabled ? "Pick a point for the comment" : "")
+      },
+      setMeasure: (enabled) => {
+        measureMode = enabled
+        if (enabled) commentMode = false
+        controls.enabled = !enabled
+        clearMeasure()
+        setMessage(enabled ? "Pick first point" : "")
+      },
+      setPartVisible: (name, visible) => {
+        const mesh = meshByName.get(name)
+        if (mesh) mesh.visible = visible
+      },
+      setReviewComments: drawReviewComments,
+    }
+    explodeRef.current = (value) => {
+      const amount =
+        value * Math.max(bounds.getSize(new THREE.Vector3()).x, 20) * 0.65
+      meshes.forEach((mesh, index) => {
+        mesh.position.x = (index - (meshes.length - 1) / 2) * amount
+      })
+    }
+
+    const loader = new STLLoader()
+    let disposed = false
+    Promise.all(
+      manifest.parts.map(async (part, index) => {
+        const geometry = await loader.loadAsync(part.file)
+        if (disposed) return
+        geometry.computeVertexNormals()
+        geometry.computeBoundingSphere()
+        const mesh = new THREE.Mesh(
+          geometry,
+          new THREE.MeshStandardMaterial({
+            color: part.color,
+            roughness: 0.7,
+            metalness: 0.03,
+            side: THREE.DoubleSide,
+          })
+        )
+        mesh.name = part.name
+        mesh.visible = visibilityRef.current.get(part.name) !== false
+        root.add(mesh)
+        meshes[index] = mesh
+        meshByName.set(part.name, mesh)
+      })
+    )
+      .then(() => {
+        if (disposed) return
+        for (const annotation of manifest.annotations || []) {
+          const point = new THREE.Vector3(...annotation.position_mm)
+          const owner = annotation.part
+            ? meshByName.get(annotation.part)
+            : undefined
+          const partSphere = owner?.geometry.boundingSphere
+          const leaderLength = Math.max((partSphere?.radius || 20) * 0.3, 6)
+          const partCenter = partSphere?.center || new THREE.Vector3()
+          const offset = point.clone().sub(partCenter)
+          if (offset.lengthSq() < 0.0001) offset.set(0, 0, 1)
+          offset.normalize().multiplyScalar(leaderLength)
+
+          const group = new THREE.Group()
+          group.position.copy(point)
+          const color = new THREE.Color(annotation.color || "#fbbf24")
+          const leader = new THREE.Mesh(
+            new THREE.CylinderGeometry(
+              Math.max(leaderLength * 0.018, 0.12),
+              Math.max(leaderLength * 0.018, 0.12),
+              leaderLength,
+              8
+            ),
+            new THREE.MeshBasicMaterial({
+              color,
+              depthTest: true,
+              depthWrite: false,
+            })
+          )
+          leader.position.copy(offset).multiplyScalar(0.5)
+          leader.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            offset.clone().normalize()
+          )
+          const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(
+              Math.max(leaderLength * 0.06, 0.18),
+              12,
+              8
+            ),
+            new THREE.MeshBasicMaterial({ color, depthTest: true })
+          )
+          group.add(leader, dot)
+          const label = makeLabelSprite(
+            annotation.label,
+            annotation.color || "#fbbf24",
+            Math.max(leaderLength * 0.32, 2.8)
+          )
+          label.position.copy(offset)
+          group.add(label)
+          ;(owner || root).add(group)
+          annotationGroups.push(group)
+        }
+        drawReviewComments(commentsRef.current)
+        fit()
+        setMessage("")
+      })
+      .catch((error: unknown) =>
+        setMessage(
+          error instanceof Error ? error.message : "Unable to load model"
+        )
+      )
+
+    let frame = 0
+    const animate = () => {
+      controls.update()
+      renderer.render(scene, camera)
+      frame = requestAnimationFrame(animate)
+    }
+    const observer = new ResizeObserver(resize)
+    observer.observe(host)
+    resize()
+    animate()
+    return () => {
+      disposed = true
+      apiRef.current = null
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      renderer.domElement.removeEventListener("pointerdown", pointerDown)
+      renderer.domElement.removeEventListener(
+        "pointerdown",
+        narrowMouseDown,
+        true
+      )
+      renderer.domElement.removeEventListener(
+        "pointermove",
+        narrowMouseMove,
+        true
+      )
+      renderer.domElement.removeEventListener("pointerup", narrowMouseEnd, true)
+      renderer.domElement.removeEventListener(
+        "pointercancel",
+        narrowMouseEnd,
+        true
+      )
+      renderer.domElement.removeEventListener("pointerdown", turntableDown)
+      renderer.domElement.removeEventListener("pointermove", turntableMove)
+      renderer.domElement.removeEventListener("pointerup", turntableEnd)
+      renderer.domElement.removeEventListener("pointercancel", turntableEnd)
+      controls.dispose()
+      renderer.dispose()
+      disposeObject(root)
+    }
+  }, [manifest, onPickComment])
+
+  const togglePart = (name: string) => {
+    const visible = !partVisibility[name]
+    visibilityRef.current.set(name, visible)
+    setPartVisibility((current) => ({ ...current, [name]: visible }))
+    apiRef.current?.setPartVisible(name, visible)
+  }
+
+  const setExplodedView = (value: number) => {
+    const next = Math.max(0, Math.min(1, value))
+    setExplode(next)
+    explodeRef.current(next)
+  }
+
+  return (
+    <div className="relative h-full min-h-0 overflow-hidden border bg-black/20 lg:min-h-[30rem]">
+      <div ref={hostRef} className="absolute inset-0" />
+
+      <div className="absolute top-2 left-2 hidden max-w-[calc(100%-1rem)] flex-wrap gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:flex">
+        <Button size="sm" variant="ghost" onClick={() => apiRef.current?.fit()}>
+          Fit
+        </Button>
+        <div className="mx-0.5 w-px bg-border" />
+        {(["ortho", "perspective"] as Projection[]).map((mode) => (
+          <Button
+            key={mode}
+            size="sm"
+            variant={projection === mode ? "secondary" : "ghost"}
+            aria-pressed={projection === mode}
+            onClick={() => {
+              setProjection(mode)
+              apiRef.current?.setProjection(mode)
+            }}
+          >
+            {mode === "ortho" ? "Ortho" : "Perspective"}
+          </Button>
+        ))}
+        <div className="mx-0.5 w-px bg-border" />
+        {(["solid", "wire", "xray"] as RenderMode[]).map((mode) => (
+          <Button
+            key={mode}
+            size="sm"
+            variant={renderMode === mode ? "secondary" : "ghost"}
+            aria-pressed={renderMode === mode}
+            onClick={() => {
+              setRenderMode(mode)
+              apiRef.current?.setRenderMode(mode)
+            }}
+          >
+            {mode === "xray"
+              ? "X-ray"
+              : `${mode[0].toUpperCase()}${mode.slice(1)}`}
+          </Button>
+        ))}
+        <div className="mx-0.5 w-px bg-border" />
+        <Button
+          size="sm"
+          variant={labels ? "secondary" : "ghost"}
+          aria-pressed={labels}
+          onClick={() => {
+            setLabels((current) => {
+              apiRef.current?.setLabels(!current)
+              return !current
+            })
+          }}
+        >
+          Labels
+        </Button>
+        <Button
+          size="sm"
+          variant={grid ? "secondary" : "ghost"}
+          aria-pressed={grid}
+          onClick={() => {
+            setGrid((current) => {
+              apiRef.current?.setGrid(!current)
+              return !current
+            })
+          }}
+        >
+          Grid
+        </Button>
+        <Button
+          size="sm"
+          variant={measure ? "default" : "ghost"}
+          aria-pressed={measure}
+          onClick={() => {
+            setMeasure((current) => {
+              const next = !current
+              if (next) setComment(false)
+              apiRef.current?.setMeasure(next)
+              return next
+            })
+          }}
+        >
+          Measure
+        </Button>
+        <Button
+          size="sm"
+          variant={comment ? "default" : "ghost"}
+          aria-pressed={comment}
+          onClick={() => {
+            setComment((current) => {
+              const next = !current
+              if (next) setMeasure(false)
+              apiRef.current?.setCommentMode(next)
+              return next
+            })
+          }}
+        >
+          Comment
+        </Button>
+      </div>
+
+      <div className="absolute top-2 left-2 flex gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:hidden">
+        <Button size="sm" variant="ghost" onClick={() => apiRef.current?.fit()}>
+          Fit
+        </Button>
+        <Button
+          size="sm"
+          variant={comment ? "default" : "secondary"}
+          aria-pressed={comment}
+          onClick={() => {
+            setComment((current) => {
+              const next = !current
+              if (next) setMeasure(false)
+              apiRef.current?.setCommentMode(next)
+              return next
+            })
+          }}
+        >
+          {comment ? "Tap model" : "Comment"}
+        </Button>
+        <details className="group relative">
+          <summary className="flex h-8 cursor-pointer list-none items-center rounded-md px-3 text-xs font-medium group-open:bg-accent hover:bg-accent">
+            More
+          </summary>
+          <div className="absolute top-10 left-0 w-56 space-y-3 rounded-md border bg-background/95 p-2 shadow-xl backdrop-blur-xl">
+            <div className="grid grid-cols-2 gap-1">
+              <Button
+                size="sm"
+                variant={projection === "perspective" ? "secondary" : "ghost"}
+                onClick={() => {
+                  const next = projection === "ortho" ? "perspective" : "ortho"
+                  setProjection(next)
+                  apiRef.current?.setProjection(next)
+                }}
+              >
+                {projection === "ortho" ? "Perspective" : "Ortho"}
+              </Button>
+              <Button
+                size="sm"
+                variant={renderMode === "xray" ? "secondary" : "ghost"}
+                onClick={() => {
+                  const next = renderMode === "xray" ? "solid" : "xray"
+                  setRenderMode(next)
+                  apiRef.current?.setRenderMode(next)
+                }}
+              >
+                {renderMode === "xray" ? "Solid" : "X-ray"}
+              </Button>
+              <Button
+                size="sm"
+                variant={labels ? "secondary" : "ghost"}
+                onClick={() => {
+                  setLabels((current) => {
+                    apiRef.current?.setLabels(!current)
+                    return !current
+                  })
+                }}
+              >
+                Labels
+              </Button>
+              <Button
+                size="sm"
+                variant={grid ? "secondary" : "ghost"}
+                onClick={() => {
+                  setGrid((current) => {
+                    apiRef.current?.setGrid(!current)
+                    return !current
+                  })
+                }}
+              >
+                Grid
+              </Button>
+              <Button
+                size="sm"
+                variant={measure ? "default" : "ghost"}
+                onClick={() => {
+                  setMeasure((current) => {
+                    const next = !current
+                    if (next) setComment(false)
+                    apiRef.current?.setMeasure(next)
+                    return next
+                  })
+                }}
+              >
+                Measure
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setExplodedView(explode === 0 ? 0.5 : 0)}
+              >
+                {explode === 0 ? "Explode" : "Collapse"}
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1 border-t pt-2">
+              {manifest.parts.map((part) => (
+                <Button
+                  key={part.name}
+                  size="sm"
+                  variant={partVisibility[part.name] ? "secondary" : "ghost"}
+                  aria-pressed={partVisibility[part.name]}
+                  onClick={() => togglePart(part.name)}
+                >
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: part.color }}
+                  />
+                  {part.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div className="absolute bottom-2 left-2 hidden max-w-[calc(100%-15rem)] flex-wrap gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:flex">
+        {manifest.parts.map((part) => (
+          <Button
+            key={part.name}
+            size="sm"
+            variant={partVisibility[part.name] ? "secondary" : "ghost"}
+            aria-pressed={partVisibility[part.name]}
+            title={`${partVisibility[part.name] ? "Hide" : "Show"} ${part.name}`}
+            className="max-w-44"
+            onClick={() => togglePart(part.name)}
+          >
+            <span
+              className="size-2 rounded-full"
+              style={{ backgroundColor: part.color }}
+            />
+            <span className="truncate">{part.name}</span>
+          </Button>
+        ))}
+      </div>
+
+      <div className="absolute right-2 bottom-2 hidden w-52 items-center gap-2 rounded-md border bg-background/90 px-2 py-1 shadow-sm backdrop-blur-xl lg:flex">
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label="Collapse assembly"
+          onClick={() => setExplodedView(explode - 0.25)}
+        >
+          −
+        </Button>
+        <input
+          aria-label="Exploded view"
+          className="min-w-0 flex-1 accent-primary"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={explode}
+          onChange={(event) => setExplodedView(Number(event.target.value))}
+        />
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label="Explode assembly"
+          onClick={() => setExplodedView(explode + 0.25)}
+        >
+          +
+        </Button>
+        <span className="w-7 text-right text-[10px] text-muted-foreground tabular-nums">
+          {Math.round(explode * 100)}%
+        </span>
+      </div>
+
+      <Button
+        size="sm"
+        variant="secondary"
+        className="absolute right-2 bottom-2 shadow-lg lg:hidden"
+        onClick={onOpenReview}
+      >
+        Review{reviewComments.length ? ` ${reviewComments.length}` : ""}
+      </Button>
+
+      {message && (
+        <div className="absolute top-11 left-2 rounded bg-foreground px-2 py-1 text-[11px] text-background shadow">
+          {message}
+        </div>
+      )}
+    </div>
+  )
+}

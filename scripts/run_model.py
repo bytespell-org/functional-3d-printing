@@ -370,6 +370,26 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
             check=True,
         )
 
+    progress_path = output / "progress.json"
+    if not progress_path.exists():
+        progress = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("update_progress.py")),
+                "init",
+                str(progress_path),
+                "--title",
+                bundle.name,
+                "--design-id",
+                slugify(bundle.name),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if progress.returncode:
+            failures.append(f"Progress sidecar initialization failed: {progress.stderr.strip()}")
+
     if stl_paths:
         subprocess.run(
             [sys.executable, str(Path(__file__).with_name("render_stl_views.py")), *map(str, stl_paths), "--output", str(render_dir / "assembly"), "--explode-mm", "15"],
