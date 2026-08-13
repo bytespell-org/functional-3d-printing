@@ -108,7 +108,7 @@ The compiled React workbench polls `progress.json` every two seconds with cache 
 
 The source UI lives in `workbench/`. It was initialized with the current shadcn preset flow and the preset recorded in `workbench/components.json`. Rebuild it with `npm run build`, then replace `assets/preview/` with `workbench/dist/`.
 
-On narrow screens, keep the model full-height and expose only Fit, Comment, and More. Put comment composition above the mobile keyboard, show review threads in a focused sheet, and keep display modes, part visibility, and exploded view inside More. Use a Z-up turntable for one-finger dragging: horizontal motion changes azimuth, vertical finger drift must not change elevation, and two-finger gestures retain zoom and pan. Do not compress the full desktop control surface or free-orbit gesture onto a phone viewport.
+On narrow screens, keep the model full-height and expose only Fit, Comment, and More. Put comment composition above the mobile keyboard, show review threads in a focused sheet, and keep display modes, part visibility, and exploded view inside More. Use a Z-up orbit for one-finger dragging: horizontal motion changes azimuth, vertical motion changes elevation through top and underside views without rolling the model, and two-finger gestures retain zoom and pan. Do not compress the full desktop control surface onto a phone viewport.
 
 ## Durable LAN delivery
 

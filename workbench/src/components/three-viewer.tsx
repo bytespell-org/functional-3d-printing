@@ -125,9 +125,10 @@ export function ThreeViewer({
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.screenSpacePanning = true
-    // A one-finger OrbitControls rotation couples horizontal and vertical
-    // motion. Disable it so touch can use the Z-up turntable below. Keep the
-    // default two-finger dolly/pan gesture.
+    // Use the Z-up orbit below for one-finger touch and narrow-view mouse
+    // dragging. OrbitControls assumes Y-up while rotating, which makes this
+    // viewer's Z-up model arc and roll unexpectedly. Keep its two-finger
+    // dolly/pan gesture.
     controls.touches.ONE = -1 as THREE.TOUCH
 
     const gridHelper = new THREE.GridHelper(200, 40, 0x7c6579, 0x342d37)
@@ -155,6 +156,7 @@ export function ThreeViewer({
     const touchPointers = new Set<number>()
     let turntablePointer: number | null = null
     let turntableX = 0
+    let turntableY = 0
 
     const disposeObject = (object: THREE.Object3D) => {
       object.traverse((child) => {
@@ -353,6 +355,7 @@ export function ThreeViewer({
       if (touchPointers.size === 1 && !measureMode && !commentMode) {
         turntablePointer = event.pointerId
         turntableX = event.clientX
+        turntableY = event.clientY
       } else {
         turntablePointer = null
       }
@@ -361,14 +364,30 @@ export function ThreeViewer({
       if (event.pointerId !== turntablePointer || touchPointers.size !== 1)
         return
       const deltaX = event.clientX - turntableX
+      const deltaY = event.clientY - turntableY
       turntableX = event.clientX
-      if (Math.abs(deltaX) < 0.01) return
+      turntableY = event.clientY
+      if (Math.abs(deltaX) < 0.01 && Math.abs(deltaY) < 0.01) return
       const offset = camera.position.clone().sub(controls.target)
-      offset.applyAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        (-deltaX / Math.max(renderer.domElement.clientWidth, 1)) *
-          Math.PI *
-          1.35
+      const radius = Math.max(offset.length(), 0.001)
+      let azimuth = Math.atan2(offset.y, offset.x)
+      let elevation = Math.asin(THREE.MathUtils.clamp(offset.z / radius, -1, 1))
+      azimuth -=
+        (deltaX / Math.max(renderer.domElement.clientWidth, 1)) * Math.PI * 1.35
+      elevation +=
+        (-deltaY / Math.max(renderer.domElement.clientHeight, 1)) *
+        Math.PI *
+        1.15
+      elevation = THREE.MathUtils.clamp(
+        elevation,
+        -Math.PI / 2 + 0.06,
+        Math.PI / 2 - 0.06
+      )
+      const horizontalRadius = radius * Math.cos(elevation)
+      offset.set(
+        horizontalRadius * Math.cos(azimuth),
+        horizontalRadius * Math.sin(azimuth),
+        radius * Math.sin(elevation)
       )
       camera.position.copy(controls.target).add(offset)
       camera.up.set(0, 0, 1)
@@ -391,6 +410,7 @@ export function ThreeViewer({
       touchPointers.add(event.pointerId)
       turntablePointer = event.pointerId
       turntableX = event.clientX
+      turntableY = event.clientY
       renderer.domElement.setPointerCapture(event.pointerId)
     }
     const narrowMouseMove = (event: PointerEvent) => {
