@@ -35,10 +35,34 @@ def parse_json_object(value: str) -> dict[str, object]:
     return parsed
 
 
+def parse_reference(value: str) -> dict[str, object]:
+    parsed = parse_json_object(value)
+    name = parsed.get("name")
+    path = parsed.get("path")
+    if not isinstance(name, str) or not name.strip():
+        raise argparse.ArgumentTypeError("Reference JSON requires a non-empty name.")
+    if not isinstance(path, str) or not Path(path).is_file():
+        raise argparse.ArgumentTypeError(f"Reference STL does not exist: {path}")
+    for field in ("position_mm", "rotation_deg"):
+        values = parsed.get(field, [0.0, 0.0, 0.0])
+        if not isinstance(values, list) or len(values) != 3 or not all(
+            isinstance(item, (int, float)) for item in values
+        ):
+            raise argparse.ArgumentTypeError(f"Reference {field} requires three numbers.")
+        parsed[field] = [float(item) for item in values]
+    opacity = parsed.get("opacity", 0.42)
+    if not isinstance(opacity, (int, float)) or not 0.05 <= opacity <= 1.0:
+        raise argparse.ArgumentTypeError("Reference opacity must be between 0.05 and 1.0.")
+    parsed["opacity"] = float(opacity)
+    parsed["color"] = parsed.get("color", "#94a3b8")
+    return parsed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--part", action="append", required=True, type=parse_part)
+    parser.add_argument("--reference", action="append", default=[], type=parse_reference)
     parser.add_argument("--title", default="Functional CAD Preview")
     parser.add_argument("--annotation", action="append", default=[], type=parse_json_object)
     parser.add_argument("--progress-url", default="../progress.json")
@@ -55,6 +79,7 @@ def main() -> int:
     manifest = {
         "title": args.title,
         "parts": [],
+        "references": [],
         "annotations": args.annotation,
         "progress_url": args.progress_url,
     }
@@ -73,11 +98,39 @@ def main() -> int:
                 "name": name,
                 "file": f"models/{filename}",
                 "color": color,
+                "role": "printable",
+                "sha256": digest,
+            }
+        )
+    for index, reference in enumerate(args.reference):
+        source = Path(str(reference["path"]))
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        filename = f"ref-{index + 1:02d}-{source.stem}-{digest[:12]}{source.suffix.lower()}"
+        if filename in used_names:
+            raise ValueError(f"Duplicate preview filename: {filename}")
+        used_names.add(filename)
+        shutil.copy2(source, model_dir / filename)
+        manifest["references"].append(
+            {
+                "name": reference["name"],
+                "file": f"models/{filename}",
+                "role": "reference",
+                "color": reference["color"],
+                "opacity": reference["opacity"],
+                "position_mm": reference["position_mm"],
+                "rotation_deg": reference["rotation_deg"],
+                "nominal_size_mm": reference.get("nominal_size_mm"),
+                "notes": reference.get("notes", []),
                 "sha256": digest,
             }
         )
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"ok": True, "preview": str(output / "index.html"), "parts": len(args.part)}, indent=2))
+    print(json.dumps({
+        "ok": True,
+        "preview": str(output / "index.html"),
+        "parts": len(args.part),
+        "references": len(args.reference),
+    }, indent=2))
     return 0
 
 

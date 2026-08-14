@@ -1,6 +1,6 @@
 # Observable workbench
 
-The workbench is a small shared review surface. It shows only a short summary, progress items, and point-anchored comments. `DesignRecord` remains the source for dimensions, assumptions, questions, and decisions; `record_iteration.py` JSONL remains the source for physical observations and learnings.
+The workbench is a small shared review surface. Its panel shows only a short summary and progress items; point-anchored comments live directly on the model. Printable parts render as solid objects. Non-printable hardware references render as translucent context with distinct visibility chips, so the enclosure and its contents can be positioned and reviewed together without implying that the hardware belongs in the print job. `DesignRecord` remains the source for dimensions, assumptions, questions, and decisions; `record_iteration.py` JSONL remains the source for physical observations and learnings.
 
 ## Sidecar
 
@@ -32,7 +32,7 @@ The only other sidecar commands are `comment-add`, `comment-remove`, and `show`.
 
 ## Comments
 
-The user can choose **Comment**, click a model face, and post a note. The preview server writes the part, local point, and message into the same sidecar. At the start of every turn after sharing the workbench, inspect comments:
+The user can choose the comment-plus action beside **Progress**, click a printable or reference model face, and post a note in place. Existing comments stay visible as blue model callouts; selecting one opens its compact delete control. The preview server writes the object name, local point, and message into the same sidecar. At the start of every turn after sharing the workbench, inspect comments:
 
 ```bash
 python scripts/update_progress.py show /chosen/output/progress.json
@@ -45,7 +45,7 @@ python scripts/update_progress.py comment-remove /chosen/output/progress.json \
   --id comment-usb-clearance
 ```
 
-The browser includes an accessible **Delete** control for comments as well.
+The browser includes an accessible delete control on each selected model comment as well.
 
 ## Serving
 

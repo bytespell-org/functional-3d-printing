@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js"
 
 import { Button } from "@/components/ui/button"
-import type { PreviewManifest, ReviewComment } from "@/types"
+import type {
+  PreviewManifest,
+  PreviewPart,
+  PreviewReference,
+  ReviewComment,
+} from "@/types"
 
 type Projection = "ortho" | "perspective"
 type RenderMode = "solid" | "xray"
+type SceneItem = PreviewPart | PreviewReference
 
 type ViewerApi = {
   fit: () => void
@@ -78,15 +84,12 @@ function makeLabelSprite(
   )
   context.fill()
   context.stroke()
-  context.fillStyle = variant === "comment" ? "#082f49" : "rgba(250,250,250,0.94)"
+  context.fillStyle =
+    variant === "comment" ? "#082f49" : "rgba(250,250,250,0.94)"
   context.textAlign = "center"
   context.textBaseline = "middle"
   lines.forEach((line, index) => {
-    context.fillText(
-      line,
-      width / 2,
-      paddingY + lineHeight * (index + 0.5) + 1
-    )
+    context.fillText(line, width / 2, paddingY + lineHeight * (index + 0.5) + 1)
   })
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -113,6 +116,7 @@ export function ThreeViewer({
   measureMode,
   onMeasureModeChange,
   onPickComment,
+  onSelectComment,
 }: {
   manifest: PreviewManifest
   reviewComments: ReviewComment[]
@@ -126,19 +130,29 @@ export function ThreeViewer({
     screen_position_px: [number, number]
     viewport_size_px: [number, number]
   }) => void
+  onSelectComment: (
+    comment: ReviewComment & {
+      screen_position_px: [number, number]
+      viewport_size_px: [number, number]
+    }
+  ) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<ViewerApi | null>(null)
   const commentsRef = useRef(reviewComments)
+  const sceneItems = useMemo<SceneItem[]>(
+    () => [...manifest.parts, ...(manifest.references || [])],
+    [manifest.parts, manifest.references]
+  )
   const visibilityRef = useRef(
-    new Map(manifest.parts.map((part) => [part.name, true]))
+    new Map(sceneItems.map((item) => [item.name, true]))
   )
   const [grid, setGrid] = useState(true)
   const [labels, setLabels] = useState(true)
   const [renderMode, setRenderMode] = useState<RenderMode>("solid")
   const [message, setMessage] = useState("Loading…")
   const [partVisibility, setPartVisibility] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(manifest.parts.map((part) => [part.name, true]))
+    () => Object.fromEntries(sceneItems.map((item) => [item.name, true]))
   )
 
   useEffect(() => {
@@ -157,6 +171,10 @@ export function ThreeViewer({
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    const items: SceneItem[] = [
+      ...manifest.parts,
+      ...(manifest.references || []),
+    ]
     host.replaceChildren()
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -259,6 +277,7 @@ export function ThreeViewer({
         offset.copy(radial.add(tangent.normalize().multiplyScalar(fan)))
         const color = "#38bdf8"
         const group = new THREE.Group()
+        group.userData.reviewCommentId = item.id
         group.position.copy(point)
         group.visible = labelsVisible
         const leader = new THREE.Mesh(
@@ -393,7 +412,9 @@ export function ThreeViewer({
         )
       }
     }
+    let pressStart: { x: number; y: number } | null = null
     const pointerDown = (event: PointerEvent) => {
+      pressStart = { x: event.clientX, y: event.clientY }
       if (!measureMode && !commentMode) return
       const rect = renderer.domElement.getBoundingClientRect()
       pointer.set(
@@ -415,7 +436,10 @@ export function ThreeViewer({
       onPickComment({
         part: owner.name,
         position_mm: [localPoint.x, localPoint.y, localPoint.z],
-        screen_position_px: [event.clientX - rect.left, event.clientY - rect.top],
+        screen_position_px: [
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+        ],
         viewport_size_px: [rect.width, rect.height],
       })
       commentMode = false
@@ -423,7 +447,47 @@ export function ThreeViewer({
       onCommentModeChange(false)
       setMessage("")
     }
+    const pointerUp = (event: PointerEvent) => {
+      if (measureMode || commentMode || !pressStart) return
+      const movement = Math.hypot(
+        event.clientX - pressStart.x,
+        event.clientY - pressStart.y
+      )
+      pressStart = null
+      if (movement > 6) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      )
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster
+        .intersectObjects(reviewGroups, true)
+        .find((item) => {
+          let object: THREE.Object3D | null = item.object
+          while (object) {
+            if (object.userData.reviewCommentId) return true
+            object = object.parent
+          }
+          return false
+        })
+      if (!hit) return
+      let object: THREE.Object3D | null = hit.object
+      while (object && !object.userData.reviewCommentId) object = object.parent
+      const id = object?.userData.reviewCommentId as string | undefined
+      const comment = commentsRef.current.find((item) => item.id === id)
+      if (!comment) return
+      onSelectComment({
+        ...comment,
+        screen_position_px: [
+          event.clientX - rect.left,
+          event.clientY - rect.top,
+        ],
+        viewport_size_px: [rect.width, rect.height],
+      })
+    }
     renderer.domElement.addEventListener("pointerdown", pointerDown)
+    renderer.domElement.addEventListener("pointerup", pointerUp)
 
     apiRef.current = {
       fit,
@@ -439,10 +503,19 @@ export function ThreeViewer({
       setRenderMode: (mode) => {
         meshes.forEach((mesh) => {
           const material = mesh.material as THREE.MeshStandardMaterial
-              material.wireframe = false
-          material.transparent = mode === "xray"
-          material.opacity = mode === "xray" ? 0.28 : 1
-          material.depthWrite = mode !== "xray"
+          const isReference = mesh.userData.role === "reference"
+          const referenceOpacity = Number(mesh.userData.opacity || 0.42)
+          material.wireframe = false
+          material.transparent = isReference || mode === "xray"
+          material.opacity =
+            mode === "xray"
+              ? isReference
+                ? 0.16
+                : 0.28
+              : isReference
+                ? referenceOpacity
+                : 1
+          material.depthWrite = !isReference && mode !== "xray"
           material.needsUpdate = true
         })
       },
@@ -480,25 +553,41 @@ export function ThreeViewer({
     const loader = new STLLoader()
     let disposed = false
     Promise.all(
-      manifest.parts.map(async (part, index) => {
-        const geometry = await loader.loadAsync(part.file)
+      items.map(async (item, index) => {
+        const geometry = await loader.loadAsync(item.file)
         if (disposed) return
         geometry.computeVertexNormals()
         geometry.computeBoundingSphere()
         const mesh = new THREE.Mesh(
           geometry,
           new THREE.MeshStandardMaterial({
-            color: part.color,
+            color: item.color,
             roughness: 0.7,
-            metalness: 0.03,
+            metalness: item.role === "reference" ? 0.08 : 0.03,
             side: THREE.DoubleSide,
+            transparent: item.role === "reference",
+            opacity: item.role === "reference" ? item.opacity || 0.42 : 1,
+            depthWrite: item.role !== "reference",
           })
         )
-        mesh.name = part.name
-        mesh.visible = visibilityRef.current.get(part.name) !== false
+        mesh.name = item.name
+        mesh.userData.role = item.role || "printable"
+        mesh.userData.opacity =
+          item.role === "reference" ? item.opacity || 0.42 : 1
+        if (item.role === "reference") {
+          const [x, y, z] = item.position_mm || [0, 0, 0]
+          const [rx, ry, rz] = item.rotation_deg || [0, 0, 0]
+          mesh.position.set(x, y, z)
+          mesh.rotation.set(
+            THREE.MathUtils.degToRad(rx),
+            THREE.MathUtils.degToRad(ry),
+            THREE.MathUtils.degToRad(rz)
+          )
+        }
+        mesh.visible = visibilityRef.current.get(item.name) !== false
         root.add(mesh)
         meshes[index] = mesh
-        meshByName.set(part.name, mesh)
+        meshByName.set(item.name, mesh)
       })
     )
       .then(() => {
@@ -587,11 +676,12 @@ export function ThreeViewer({
       cancelAnimationFrame(frame)
       observer.disconnect()
       renderer.domElement.removeEventListener("pointerdown", pointerDown)
+      renderer.domElement.removeEventListener("pointerup", pointerUp)
       controls.dispose()
       renderer.dispose()
       disposeObject(root)
     }
-  }, [manifest, onCommentModeChange, onPickComment])
+  }, [manifest, onCommentModeChange, onPickComment, onSelectComment])
 
   const togglePart = (name: string) => {
     const visible = !partVisibility[name]
@@ -719,19 +809,28 @@ export function ThreeViewer({
               </Button>
             </div>
             <div className="flex flex-wrap gap-1 border-t pt-2">
-              {manifest.parts.map((part) => (
+              {sceneItems.map((item) => (
                 <Button
-                  key={part.name}
+                  key={item.name}
                   size="sm"
-                  variant={partVisibility[part.name] ? "secondary" : "ghost"}
-                  aria-pressed={partVisibility[part.name]}
-                  onClick={() => togglePart(part.name)}
+                  variant={partVisibility[item.name] ? "secondary" : "ghost"}
+                  aria-pressed={partVisibility[item.name]}
+                  className={
+                    item.role === "reference"
+                      ? "border border-dashed border-sky-300/40"
+                      : undefined
+                  }
+                  onClick={() => togglePart(item.name)}
                 >
                   <span
-                    className="size-2 rounded-full"
-                    style={{ backgroundColor: part.color }}
+                    className={`size-2 ${
+                      item.role === "reference"
+                        ? "rotate-45 rounded-[2px]"
+                        : "rounded-full"
+                    }`}
+                    style={{ backgroundColor: item.color }}
                   />
-                  {part.name}
+                  {item.name}
                 </Button>
               ))}
             </div>
@@ -740,21 +839,31 @@ export function ThreeViewer({
       </div>
 
       <div className="absolute bottom-2 left-2 hidden max-w-[calc(100%-15rem)] flex-wrap gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:flex">
-        {manifest.parts.map((part) => (
+        {sceneItems.map((item) => (
           <Button
-            key={part.name}
+            key={item.name}
             size="sm"
-            variant={partVisibility[part.name] ? "secondary" : "ghost"}
-            aria-pressed={partVisibility[part.name]}
-            title={`${partVisibility[part.name] ? "Hide" : "Show"} ${part.name}`}
-            className="max-w-44"
-            onClick={() => togglePart(part.name)}
+            variant={partVisibility[item.name] ? "secondary" : "ghost"}
+            aria-pressed={partVisibility[item.name]}
+            title={`${partVisibility[item.name] ? "Hide" : "Show"} ${item.name}${
+              item.role === "reference" ? " (reference only)" : ""
+            }`}
+            className={`max-w-44 ${
+              item.role === "reference"
+                ? "border border-dashed border-sky-300/40"
+                : ""
+            }`}
+            onClick={() => togglePart(item.name)}
           >
             <span
-              className="size-2 rounded-full"
-              style={{ backgroundColor: part.color }}
+              className={`size-2 ${
+                item.role === "reference"
+                  ? "rotate-45 rounded-[2px]"
+                  : "rounded-full"
+              }`}
+              style={{ backgroundColor: item.color }}
             />
-            <span className="truncate">{part.name}</span>
+            <span className="truncate">{item.name}</span>
           </Button>
         ))}
       </div>

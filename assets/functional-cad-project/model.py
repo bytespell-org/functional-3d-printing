@@ -16,6 +16,7 @@ from functional_fdm import (
     FitProfile,
     FunctionalRequirement,
     PrintPlan,
+    ReferenceComponent,
     ReviewAnnotation,
 )
 from functional_fdm.primitives import enclosure_shell
@@ -49,6 +50,9 @@ def build() -> DesignBundle:
         ),
     )
     graph = AssemblyGraph({"base"})
+    battery_envelope = cq.Workplane("XY").box(
+        25.0, 40.0, 10.0, centered=(True, True, False)
+    )
     record = DesignRecord(
         intent="Demonstrate the required function with the smallest useful prototype.",
         known_dimensions_mm={
@@ -79,6 +83,17 @@ def build() -> DesignBundle:
     return DesignBundle(
         name="functional-cad-example",
         parts=[part],
+        reference_components=[
+            ReferenceComponent(
+                name="battery",
+                geometry=battery_envelope,
+                color="#38bdf8",
+                opacity=0.38,
+                position_mm=(0.0, 0.0, 1.8),
+                nominal_size_mm=(25.0, 40.0, 10.0),
+                notes=["Nominal envelope; replace with a physical measurement."],
+            )
+        ],
         assembly=graph,
         assumptions={"nozzle_mm": profile.nozzle_mm, "material": profile.material},
         design_record=record,

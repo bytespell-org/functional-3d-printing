@@ -328,6 +328,78 @@ class DesignPart:
         return [finding for feature in self.features for finding in feature.findings]
 
 
+@dataclass
+class ReferenceComponent:
+    """Non-printable assembly context shown beside printable geometry."""
+
+    name: str
+    geometry: Any
+    color: str = "#94a3b8"
+    opacity: float = 0.42
+    position_mm: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotation_deg: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    nominal_size_mm: tuple[float, float, float] | None = None
+    notes: list[str] = field(default_factory=list)
+
+    def validate(self) -> list[Finding]:
+        findings: list[Finding] = []
+        if not self.name.strip():
+            findings.append(
+                Finding(
+                    "reference.missing-name",
+                    Severity.BLOCKING,
+                    "A reference component has no name.",
+                )
+            )
+        if not self.color.startswith("#") or len(self.color) != 7:
+            findings.append(
+                Finding(
+                    "reference.invalid-color",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} has invalid color {self.color!r}.",
+                )
+            )
+        if not 0.05 <= self.opacity <= 1.0:
+            findings.append(
+                Finding(
+                    "reference.invalid-opacity",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} opacity must be between 0.05 and 1.0.",
+                )
+            )
+        if len(self.position_mm) != 3 or len(self.rotation_deg) != 3:
+            findings.append(
+                Finding(
+                    "reference.invalid-transform",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} requires XYZ position and rotation values.",
+                )
+            )
+        if self.nominal_size_mm is not None and (
+            len(self.nominal_size_mm) != 3 or any(value <= 0 for value in self.nominal_size_mm)
+        ):
+            findings.append(
+                Finding(
+                    "reference.invalid-size",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} has invalid nominal dimensions.",
+                )
+            )
+        return findings
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "role": "reference",
+            "color": self.color,
+            "opacity": self.opacity,
+            "position_mm": list(self.position_mm),
+            "rotation_deg": list(self.rotation_deg),
+            "nominal_size_mm": list(self.nominal_size_mm) if self.nominal_size_mm else None,
+            "notes": self.notes,
+        }
+
+
 @dataclass(frozen=True)
 class InterfaceSpec:
     interface_id: str
@@ -574,10 +646,12 @@ class DesignBundle:
     design_record: DesignRecord | None = None
     review_annotations: list[ReviewAnnotation] = field(default_factory=list)
     design_deltas: list[DesignDelta] = field(default_factory=list)
+    reference_components: list[ReferenceComponent] = field(default_factory=list)
 
     def validate_metadata(self) -> list[Finding]:
         findings = list(self.findings)
         part_names = [part.name for part in self.parts]
+        reference_names = [component.name for component in self.reference_components]
         duplicates = sorted({name for name in part_names if part_names.count(name) > 1})
         if duplicates:
             findings.append(
@@ -585,6 +659,26 @@ class DesignBundle:
                     "design.duplicate-part-name",
                     Severity.BLOCKING,
                     f"Part names are duplicated: {duplicates}.",
+                )
+            )
+        duplicate_references = sorted(
+            {name for name in reference_names if reference_names.count(name) > 1}
+        )
+        if duplicate_references:
+            findings.append(
+                Finding(
+                    "reference.duplicate-name",
+                    Severity.BLOCKING,
+                    f"Reference component names are duplicated: {duplicate_references}.",
+                )
+            )
+        shared_names = sorted(set(part_names) & set(reference_names))
+        if shared_names:
+            findings.append(
+                Finding(
+                    "reference.part-name-collision",
+                    Severity.BLOCKING,
+                    f"Printable parts and reference components share names: {shared_names}.",
                 )
             )
         if set(part_names) != self.assembly.parts:
@@ -631,6 +725,7 @@ class DesignBundle:
                         )
                     )
         known_parts = set(part_names)
+        known_scene_objects = known_parts | set(reference_names)
         annotation_ids = [annotation.annotation_id for annotation in self.review_annotations]
         duplicate_annotations = sorted(
             {name for name in annotation_ids if annotation_ids.count(name) > 1}
@@ -644,12 +739,12 @@ class DesignBundle:
                 )
             )
         for annotation in self.review_annotations:
-            findings.extend(annotation.validate(known_parts))
+            findings.extend(annotation.validate(known_scene_objects))
         known_annotations = set(annotation_ids)
         for delta in self.design_deltas:
             findings.extend(delta.validate(known_annotations))
         for check in self.assembly_checks:
-            missing = {check.part_a, check.part_b} - known_parts
+            missing = {check.part_a, check.part_b} - known_scene_objects
             if missing:
                 findings.append(
                     Finding(
@@ -680,6 +775,8 @@ class DesignBundle:
                 )
             else:
                 findings.extend(part.print_plan.validate())
+        for component in self.reference_components:
+            findings.extend(component.validate())
         return findings
 
     def as_manifest(self) -> dict[str, Any]:
@@ -707,6 +804,9 @@ class DesignBundle:
                     "print_plan": part.print_plan.as_dict() if part.print_plan else None,
                 }
                 for part in self.parts
+            ],
+            "reference_components": [
+                component.as_dict() for component in self.reference_components
             ],
             "assembly": self.assembly.as_dict(),
             "assembly_checks": [check.as_dict() for check in self.assembly_checks],

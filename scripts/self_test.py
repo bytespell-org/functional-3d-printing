@@ -28,6 +28,7 @@ from functional_fdm import (  # noqa: E402
     FitProfile,
     InterfaceSpec,
     PrintPlan,
+    ReferenceComponent,
     ReviewAnnotation,
     FunctionalRequirement,
     Severity,
@@ -320,12 +321,23 @@ def main() -> int:
             design_record=record,
             review_annotations=[annotation],
             design_deltas=[delta],
+            reference_components=[
+                ReferenceComponent(
+                    "battery",
+                    None,
+                    position_mm=(1.0, 2.0, 3.0),
+                    rotation_deg=(0.0, 0.0, 90.0),
+                    nominal_size_mm=(25.0, 40.0, 10.0),
+                )
+            ],
         )
         review_manifest = review_bundle.as_manifest()
         if review_manifest["design_deltas"][0]["delta"] != -1.0:
             raise RuntimeError("The design delta did not preserve the signed change.")
         if any(f.code.startswith("review.") for f in review_bundle.validate_metadata()):
             raise RuntimeError("Complete review metadata produced findings.")
+        if review_manifest["reference_components"][0]["role"] != "reference":
+            raise RuntimeError("Reference component metadata was not included in the manifest.")
         bad_delta = DesignDelta(
             "missing-feature",
             "center_z",
@@ -357,6 +369,16 @@ def main() -> int:
                 str(preview),
                 "--part",
                 f"test={stl}:#4f7cac",
+                "--reference",
+                json.dumps({
+                    "name": "battery",
+                    "path": str(stl),
+                    "color": "#38bdf8",
+                    "opacity": 0.38,
+                    "position_mm": [1, 2, 3],
+                    "rotation_deg": [0, 0, 90],
+                    "nominal_size_mm": [25, 40, 10],
+                }),
                 "--annotation",
                 json.dumps(annotation.as_dict()),
             ],
@@ -379,6 +401,11 @@ def main() -> int:
             raise RuntimeError("Preview model URL is not content-addressed.")
         if len(preview_part.get("sha256", "")) != 64:
             raise RuntimeError("Preview manifest is missing the full model digest.")
+        preview_reference = preview_manifest["references"][0]
+        if preview_reference["role"] != "reference" or preview_reference["position_mm"] != [1.0, 2.0, 3.0]:
+            raise RuntimeError("Preview reference component transform is missing.")
+        if not preview_reference["file"].startswith("models/ref-"):
+            raise RuntimeError("Reference component was not isolated from printable part naming.")
 
         class HeaderProbe(PreviewHandler):
             def __init__(self, path: str):

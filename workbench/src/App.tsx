@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
-import { Delete02Icon } from "@hugeicons/core-free-icons"
+import { CommentAdd01Icon, Delete02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThreeViewer } from "@/components/three-viewer"
-import type {
-  DesignProgress,
-  PreviewManifest,
-  ReviewComment,
-} from "@/types"
+import type { DesignProgress, PreviewManifest, ReviewComment } from "@/types"
 
 type CommentAnchor = {
   part: string
@@ -20,16 +15,22 @@ type CommentAnchor = {
   viewport_size_px: [number, number]
 }
 
+type SelectedComment = ReviewComment & {
+  screen_position_px: [number, number]
+  viewport_size_px: [number, number]
+}
+
 export function App() {
   const [manifest, setManifest] = useState<PreviewManifest | null>(null)
   const [progress, setProgress] = useState<DesignProgress | null>(null)
   const [error, setError] = useState("")
-  const [tab, setTab] = useState("comments")
   const [panelOpen, setPanelOpen] = useState(false)
   const [commentMode, setCommentMode] = useState(false)
   const [measureMode, setMeasureMode] = useState(false)
   const [commentAnchor, setCommentAnchor] = useState<CommentAnchor | null>(null)
   const [commentText, setCommentText] = useState("")
+  const [selectedComment, setSelectedComment] =
+    useState<SelectedComment | null>(null)
   const [postingComment, setPostingComment] = useState(false)
   const [removingComment, setRemovingComment] = useState("")
 
@@ -77,7 +78,7 @@ export function App() {
     setCommentAnchor(anchor)
     setCommentText("")
     setCommentMode(false)
-    setTab("comments")
+    setSelectedComment(null)
     setPanelOpen(false)
   }, [])
 
@@ -86,7 +87,7 @@ export function App() {
     setCommentMode(next)
     if (next) setMeasureMode(false)
     setCommentAnchor(null)
-    setTab("comments")
+    setSelectedComment(null)
     if (next) setPanelOpen(false)
   }
 
@@ -108,7 +109,6 @@ export function App() {
         throw new Error(value.error || `comment ${response.status}`)
       setCommentAnchor(null)
       setCommentText("")
-      setPanelOpen(true)
       setError("")
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -135,6 +135,7 @@ export function App() {
             }
           : current
       )
+      setSelectedComment((current) => (current?.id === id ? null : current))
       setError("")
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -164,9 +165,28 @@ export function App() {
       )
     : 8
   const composerTop = commentAnchor
-    ? commentAnchor.screen_position_px[1] < commentAnchor.viewport_size_px[1] / 2
+    ? commentAnchor.screen_position_px[1] <
+      commentAnchor.viewport_size_px[1] / 2
       ? commentAnchor.screen_position_px[1] + 16
       : Math.max(8, commentAnchor.screen_position_px[1] - 212)
+    : 8
+  const selectedWidth = selectedComment
+    ? Math.min(280, selectedComment.viewport_size_px[0] - 16)
+    : 280
+  const selectedLeft = selectedComment
+    ? Math.max(
+        8,
+        Math.min(
+          selectedComment.screen_position_px[0] - selectedWidth / 2,
+          selectedComment.viewport_size_px[0] - selectedWidth - 8
+        )
+      )
+    : 8
+  const selectedTop = selectedComment
+    ? selectedComment.screen_position_px[1] <
+      selectedComment.viewport_size_px[1] / 2
+      ? selectedComment.screen_position_px[1] + 14
+      : Math.max(8, selectedComment.screen_position_px[1] - 132)
     : 8
 
   return (
@@ -182,7 +202,35 @@ export function App() {
               measureMode={measureMode}
               onMeasureModeChange={setMeasureMode}
               onPickComment={pickCommentAnchor}
+              onSelectComment={setSelectedComment}
             />
+
+            <div className="absolute top-2 right-2 z-30 flex gap-1 lg:right-[21rem]">
+              <Button
+                size="sm"
+                className="size-9 border border-sky-300/50 bg-sky-500 p-0 text-sky-950 shadow-lg hover:bg-sky-400"
+                aria-label={
+                  commentMode ? "Cancel adding comment" : "Add comment"
+                }
+                title={commentMode ? "Cancel adding comment" : "Add comment"}
+                aria-pressed={commentMode}
+                onClick={toggleCommentMode}
+              >
+                <HugeiconsIcon
+                  icon={CommentAdd01Icon}
+                  size={18}
+                  strokeWidth={1.9}
+                />
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-9 shadow-lg lg:hidden"
+                onClick={() => setPanelOpen(true)}
+              >
+                Progress
+              </Button>
+            </div>
 
             {commentMode && (
               <div className="pointer-events-none absolute top-13 left-2 z-30 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-lg lg:top-12">
@@ -253,127 +301,94 @@ export function App() {
               </>
             )}
 
-            <Button
-              size="sm"
-              variant="secondary"
-              className="absolute right-2 bottom-2 z-30 shadow-lg lg:hidden"
-              onClick={() => {
-                setTab("comments")
-                setPanelOpen(true)
-              }}
-            >
-              Comments{comments.length ? ` ${comments.length}` : ""}
-            </Button>
+            {selectedComment && !commentAnchor && (
+              <div
+                className="absolute z-50 rounded-xl border border-sky-300/30 bg-card/96 p-3 shadow-2xl backdrop-blur-xl"
+                style={{
+                  width: selectedWidth,
+                  left: selectedLeft,
+                  top: selectedTop,
+                }}
+              >
+                <div className="flex items-start gap-2">
+                  <p className="min-w-0 flex-1 text-xs leading-5">
+                    {selectedComment.message}
+                  </p>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Delete comment on ${selectedComment.part}`}
+                    disabled={removingComment === selectedComment.id}
+                    onClick={() => void removeComment(selectedComment.id)}
+                  >
+                    <HugeiconsIcon
+                      icon={Delete02Icon}
+                      size={15}
+                      strokeWidth={1.8}
+                    />
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-1 h-7 px-2 text-[11px]"
+                  onClick={() => setSelectedComment(null)}
+                >
+                  Close
+                </Button>
+              </div>
+            )}
 
             {panelOpen && (
               <button
-                aria-label="Close comments and progress"
+                aria-label="Close progress"
                 className="absolute inset-0 z-30 bg-black/45 lg:hidden"
                 onClick={() => setPanelOpen(false)}
               />
             )}
 
             <aside
-              aria-label="Comments and progress"
+              aria-label="Progress"
               className={`${
                 panelOpen ? "flex" : "hidden"
-              } absolute inset-x-2 bottom-2 z-40 max-h-[72dvh] min-h-72 flex-col overflow-hidden rounded-xl border bg-card/96 shadow-2xl backdrop-blur-xl lg:top-2 lg:right-2 lg:bottom-auto lg:left-auto lg:flex lg:h-[min(32rem,calc(100%-1rem))] lg:w-80 lg:min-h-0 lg:rounded-lg`}
+              } absolute inset-x-2 bottom-2 z-40 max-h-[72dvh] min-h-72 flex-col overflow-hidden rounded-xl border bg-card/96 shadow-2xl backdrop-blur-xl lg:top-2 lg:right-2 lg:bottom-auto lg:left-auto lg:flex lg:h-[min(32rem,calc(100%-1rem))] lg:min-h-0 lg:w-80 lg:rounded-lg`}
             >
-              <Tabs
-                value={tab}
-                onValueChange={setTab}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <div className="flex shrink-0 items-center gap-2 border-b p-1.5">
-                  <TabsList className="grid h-9 min-w-0 flex-1 grid-cols-2 bg-muted/60 p-0.5">
-                    <TabsTrigger value="comments">
-                      Comments{comments.length ? ` ${comments.length}` : ""}
-                    </TabsTrigger>
-                    <TabsTrigger value="progress">Progress</TabsTrigger>
-                  </TabsList>
-                  {tab === "comments" && (
-                    <Button
-                      size="sm"
-                      variant={commentMode ? "default" : "secondary"}
-                      onClick={toggleCommentMode}
-                    >
-                      {commentMode ? "Cancel" : "Add comment"}
-                    </Button>
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+                <p className="text-xs font-medium">Progress</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="lg:hidden"
+                  onClick={() => setPanelOpen(false)}
+                >
+                  Close
+                </Button>
+              </div>
+
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="divide-y">
+                  {progress?.summary && (
+                    <p className="p-3 text-xs leading-5">{progress.summary}</p>
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="lg:hidden"
-                    onClick={() => setPanelOpen(false)}
-                  >
-                    Close
-                  </Button>
-                </div>
-
-                <ScrollArea className="min-h-0 flex-1">
-                  <TabsContent value="comments" className="m-0 divide-y">
-                    {comments.map((comment: ReviewComment, index) => (
-                      <div key={comment.id} className="p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-xs font-medium">
-                                {comment.part}
-                              </p>
-                              <Button
-                                size="icon-xs"
-                                variant="ghost"
-                                aria-label={`Delete comment on ${comment.part}`}
-                                disabled={removingComment === comment.id}
-                                onClick={() => void removeComment(comment.id)}
-                              >
-                                <HugeiconsIcon
-                                  icon={Delete02Icon}
-                                  size={15}
-                                  strokeWidth={1.8}
-                                />
-                              </Button>
-                            </div>
-                            <p className="mt-1 text-xs leading-5">
-                              {comment.message}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {!comments.length && (
-                      <div className="space-y-3 p-4 text-center">
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          No open comments.
+                  {progress?.progress.map((item) => (
+                    <div key={item.id} className="p-3">
+                      <p className="truncate text-xs font-medium">
+                        {item.title}
+                      </p>
+                      {item.summary && (
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {item.summary}
                         </p>
-                        <Button size="sm" onClick={toggleCommentMode}>
-                          Add comment
-                        </Button>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="progress" className="m-0 divide-y">
-                    {progress?.summary && (
-                      <p className="p-3 text-xs leading-5">{progress.summary}</p>
-                    )}
-                    {progress?.progress.map((item) => (
-                      <div key={item.id} className="p-3">
-                        <p className="truncate text-xs font-medium">{item.title}</p>
-                        {item.summary && (
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {item.summary}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </TabsContent>
-                </ScrollArea>
-              </Tabs>
+                      )}
+                    </div>
+                  ))}
+                  {!progress?.summary && !progress?.progress.length && (
+                    <p className="p-4 text-center text-xs text-muted-foreground">
+                      No progress updates yet.
+                    </p>
+                  )}
+                </div>
+              </ScrollArea>
 
               {error && (
                 <div className="shrink-0 border-t bg-destructive/10 px-3 py-2 text-xs text-destructive">

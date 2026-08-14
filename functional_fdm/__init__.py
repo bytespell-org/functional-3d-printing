@@ -22,6 +22,7 @@ from .model import (
     FunctionalRequirement,
     InterfaceSpec,
     PrintPlan,
+    ReferenceComponent,
     ReviewAnnotation,
     Severity,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "FunctionalRequirement",
     "InterfaceSpec",
     "PrintPlan",
+    "ReferenceComponent",
     "ReviewAnnotation",
     "MaterialProfile",
     "Severity",

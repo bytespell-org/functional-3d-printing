@@ -16,6 +16,8 @@ Before surface detail, define:
 
 Use an `AssemblyGraph`. Each interface records two parts, joint type, nominal geometry, fit, insertion direction, removability, cycles, and hardware.
 
+Represent the board, battery, speaker, display, connectors, plugs, and other supplied hardware as `ReferenceComponent` geometry in the assembled coordinate frame. Prefer measured or manufacturer CAD. When neither exists, model the simplest conservative envelope that preserves the known dimensions, exits, and keep-outs; note that it is nominal or assumed. A manufacturer assembly must contain renderable solids, but unlike a printable part it need not be watertight or pass the print mesh audit. Keep reference components out of printable exports and printability audits. Use them in clearance, insertion, wire-route, and service-access checks.
+
 ## Lid selection
 
 - Screw lid: best for service, clamp control, and predictable retention. Check bosses, inserts, screw length, and driver access.

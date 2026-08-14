@@ -61,7 +61,12 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
             ):
                 raise ValueError("position_mm must contain three finite numbers.")
             manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
-            part_names = {item.get("name") for item in manifest.get("parts", []) if isinstance(item, dict)}
+            part_names = {
+                item.get("name")
+                for collection in (manifest.get("parts", []), manifest.get("references", []))
+                for item in collection
+                if isinstance(item, dict)
+            }
             if part not in part_names:
                 raise ValueError(f"Unknown model part: {part}")
             command = [

@@ -1,4 +1,21 @@
-export type PreviewPart = { name: string; file: string; color: string }
+export type PreviewPart = {
+  name: string
+  file: string
+  color: string
+  role?: "printable"
+}
+
+export type PreviewReference = {
+  name: string
+  file: string
+  color: string
+  role: "reference"
+  opacity?: number
+  position_mm?: [number, number, number]
+  rotation_deg?: [number, number, number]
+  nominal_size_mm?: [number, number, number] | null
+  notes?: string[]
+}
 
 export type ReviewAnnotation = {
   id: string
@@ -12,6 +29,7 @@ export type ReviewAnnotation = {
 export type PreviewManifest = {
   title: string
   parts: PreviewPart[]
+  references?: PreviewReference[]
   annotations?: ReviewAnnotation[]
   progress_url?: string
 }

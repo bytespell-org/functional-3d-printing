@@ -55,12 +55,15 @@ def nearest_existing_directory(path: Path) -> Path:
 
 def git_project_root(path: Path) -> Path | None:
     candidate = nearest_existing_directory(path.resolve())
-    result = subprocess.run(
-        ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
-        check=False,
-        text=True,
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode:
         return None
     return Path(result.stdout.strip()).resolve()
@@ -208,6 +211,19 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
         for note in feature_notes:
             lines.append(f"- Process note: {note}")
         lines.append("")
+    reference_components = manifest.get("reference_components", [])
+    if reference_components:
+        lines.extend(["## Non-printable reference components", ""])
+        for component in reference_components:  # type: ignore[union-attr]
+            lines.append(f"### {component['name']}")
+            lines.append("")
+            lines.append(f"- Position: {component['position_mm']} mm")
+            lines.append(f"- Rotation: {component['rotation_deg']} degrees")
+            if component.get("nominal_size_mm"):
+                lines.append(f"- Nominal envelope: {component['nominal_size_mm']} mm")
+            for note in component.get("notes", []):
+                lines.append(f"- {note}")
+            lines.append("")
     lines.extend(["## Hardware BOM", ""])
     for item in manifest.get("bom", []):  # type: ignore[union-attr]
         lines.append(f"- {item}")
@@ -250,12 +266,15 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
     manifest["output_policy"] = output_policy
     output.mkdir(parents=True, exist_ok=True)
     part_dir = output / "parts"
+    reference_dir = output / "reference-models"
     render_dir = output / "renders"
     part_dir.mkdir(exist_ok=True)
+    reference_dir.mkdir(exist_ok=True)
     render_dir.mkdir(exist_ok=True)
     failures: list[str] = []
     preview_parts: list[str] = []
     preview_review: list[str] = []
+    preview_references: list[str] = []
     stl_paths: list[Path] = []
 
     for annotation in bundle.review_annotations:
@@ -359,6 +378,45 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
             check=True,
         )
 
+    for component in bundle.reference_components:
+        geometry = (
+            component.geometry.val()
+            if isinstance(component.geometry, cq.Workplane)
+            else component.geometry
+        )
+        solids = geometry.Solids() if geometry is not None and hasattr(geometry, "Solids") else []
+        if not solids:
+            failures.append(
+                f"Reference component {component.name!r} has no renderable solid geometry."
+            )
+            continue
+        stl_path = reference_dir / f"{component.name}.stl"
+        # Reference hardware is visual context rather than a manufacturing
+        # mesh. Use a lighter tessellation so detailed supplier assemblies do
+        # not make the browser preview or repository unnecessarily large.
+        cq.exporters.export(geometry, str(stl_path), tolerance=0.15, angularTolerance=0.3)
+        preview_references.extend(
+            [
+                "--reference",
+                json.dumps(
+                    {
+                        "name": component.name,
+                        "path": str(stl_path),
+                        "color": component.color,
+                        "opacity": component.opacity,
+                        "position_mm": list(component.position_mm),
+                        "rotation_deg": list(component.rotation_deg),
+                        "nominal_size_mm": (
+                            list(component.nominal_size_mm)
+                            if component.nominal_size_mm
+                            else None
+                        ),
+                        "notes": component.notes,
+                    }
+                ),
+            ]
+        )
+
     progress_path = output / "progress.json"
     if not progress_path.exists():
         progress = subprocess.run(
@@ -393,6 +451,7 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
                 "--title",
                 bundle.name,
                 *preview_parts,
+                *preview_references,
                 *preview_review,
             ],
             check=True,
