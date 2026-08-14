@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -391,6 +392,11 @@ def main() -> int:
             raise RuntimeError("Preview design delta data is missing.")
         if preview_manifest["progress_url"] != "../progress.json":
             raise RuntimeError("Preview does not point to the observable progress sidecar.")
+        preview_part = preview_manifest["parts"][0]
+        if not re.search(r"-[0-9a-f]{12}\.stl$", preview_part["file"]):
+            raise RuntimeError("Preview model URL is not content-addressed.")
+        if len(preview_part.get("sha256", "")) != 64:
+            raise RuntimeError("Preview manifest is missing the full model digest.")
 
         class HeaderProbe(PreviewHandler):
             def __init__(self, path: str):
@@ -532,7 +538,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 29}, indent=2))
+    print(json.dumps({"ok": True, "tests": 30}, indent=2))
     return 0
 
 

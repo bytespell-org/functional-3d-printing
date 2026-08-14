@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -61,12 +62,22 @@ def main() -> int:
     }
     used_names: set[str] = set()
     for index, (name, path, color) in enumerate(args.part):
-        filename = f"{index + 1:02d}-{path.name}"
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        filename = (
+            f"{index + 1:02d}-{path.stem}-{digest[:12]}{path.suffix.lower()}"
+        )
         if filename in used_names:
             raise ValueError(f"Duplicate preview filename: {filename}")
         used_names.add(filename)
         shutil.copy2(path, model_dir / filename)
-        manifest["parts"].append({"name": name, "file": f"models/{filename}", "color": color})
+        manifest["parts"].append(
+            {
+                "name": name,
+                "file": f"models/{filename}",
+                "color": color,
+                "sha256": digest,
+            }
+        )
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"ok": True, "preview": str(output / "index.html"), "parts": len(args.part)}, indent=2))
     return 0
