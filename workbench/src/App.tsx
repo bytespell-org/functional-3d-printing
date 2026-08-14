@@ -78,7 +78,7 @@ export function App() {
     setCommentText("")
     setCommentMode(false)
     setTab("comments")
-    setPanelOpen(true)
+    setPanelOpen(false)
   }, [])
 
   const toggleCommentMode = () => {
