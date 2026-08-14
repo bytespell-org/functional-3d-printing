@@ -249,7 +249,7 @@ class ReviewAnnotation:
 
 @dataclass(frozen=True)
 class DesignDelta:
-    """One numeric design change tied to a visible annotation."""
+    """One optional numeric design change tied to a visible annotation."""
 
     annotation_id: str
     parameter: str
@@ -258,7 +258,6 @@ class DesignDelta:
     unit: str
     direction: str
     reason: str
-    review_status: str = "proposed"
 
     def validate(self, annotation_ids: set[str]) -> list[Finding]:
         findings: list[Finding] = []
@@ -294,14 +293,6 @@ class DesignDelta:
                     f"Design delta for {self.annotation_id!r} has no reason.",
                 )
             )
-        if self.review_status not in {"proposed", "visually-approved", "rejected"}:
-            findings.append(
-                Finding(
-                    "review.delta.invalid-status",
-                    Severity.BLOCKING,
-                    f"Design delta for {self.annotation_id!r} has invalid review status {self.review_status!r}.",
-                )
-            )
         return findings
 
     def as_dict(self) -> dict[str, Any]:
@@ -314,7 +305,6 @@ class DesignDelta:
             "unit": self.unit,
             "direction": self.direction,
             "reason": self.reason,
-            "review_status": self.review_status,
         }
 
 
@@ -487,21 +477,17 @@ class FunctionalRequirement:
 
 @dataclass(frozen=True)
 class DesignDecision:
-    """One scoped architecture decision and its approval evidence."""
+    """One architecture decision and the reason for it."""
 
     decision: str
     reason: str
-    status: str = "proposed"
     alternatives: tuple[str, ...] = ()
-    approval_basis: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "decision": self.decision,
             "reason": self.reason,
-            "status": self.status,
             "alternatives": list(self.alternatives),
-            "approval_basis": self.approval_basis,
         }
 
 
@@ -519,7 +505,6 @@ class DesignRecord:
     decisions: list[DesignDecision] = field(default_factory=list)
     prototype_stage: str = "concept"
     test_plan: list[str] = field(default_factory=list)
-    iterations: list[dict[str, Any]] = field(default_factory=list)
 
     def validate(self) -> list[Finding]:
         findings: list[Finding] = []
@@ -550,24 +535,13 @@ class DesignRecord:
                     f"Functional requirement identifiers are duplicated: {duplicates}.",
                 )
             )
-        allowed_decision_statuses = {"proposed", "user-approved", "tested", "rejected"}
         for index, decision in enumerate(self.decisions):
-            if decision.status not in allowed_decision_statuses:
+            if not decision.decision.strip() or not decision.reason.strip():
                 findings.append(
                     Finding(
-                        "design-record.invalid-decision-status",
+                        "design-record.incomplete-decision",
                         Severity.BLOCKING,
-                        f"Decision {index + 1} has unsupported status '{decision.status}'.",
-                        recommendation="Use proposed, user-approved, tested, or rejected.",
-                    )
-                )
-            if decision.status == "user-approved" and not decision.approval_basis.strip():
-                findings.append(
-                    Finding(
-                        "design-record.missing-approval-basis",
-                        Severity.BLOCKING,
-                        f"Decision {index + 1} is marked user-approved without scoped approval evidence.",
-                        recommendation="Record a short user quote or precise paraphrase that approves only this decision.",
+                        f"Decision {index + 1} requires both a choice and a reason.",
                     )
                 )
         return findings
@@ -584,7 +558,6 @@ class DesignRecord:
             "decisions": [decision.as_dict() for decision in self.decisions],
             "prototype_stage": self.prototype_stage,
             "test_plan": self.test_plan,
-            "iterations": self.iterations,
         }
 
 

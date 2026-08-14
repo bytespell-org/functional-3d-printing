@@ -19,6 +19,15 @@ python scripts/update_progress.py progress /chosen/output/progress.json \
   --summary "Annotated preview is ready."
 ```
 
+Set the short summary shown above the milestones without creating a milestone:
+
+```bash
+python scripts/update_progress.py progress /chosen/output/progress.json \
+  --summary "Checking the lid fit and cable clearance."
+```
+
+Use `--overall-summary` when one command should update both a milestone and the short overall summary.
+
 The only other sidecar commands are `comment-add`, `comment-remove`, and `show`. The script writes atomically and migrates a v1 sidecar on first use. Migration preserves its open and acknowledged comments, drops resolved comments, converts steps into progress items, and discards old answers and learnings because they belong in the canonical design and iteration records.
 
 ## Comments

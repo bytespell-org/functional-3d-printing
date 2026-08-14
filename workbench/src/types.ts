@@ -28,9 +28,7 @@ export type ReviewComment = {
   part: string
   position_mm: [number, number, number]
   message: string
-  author: "user" | "agent"
   created_at: string
-  updated_at: string
 }
 
 export type DesignProgress = {

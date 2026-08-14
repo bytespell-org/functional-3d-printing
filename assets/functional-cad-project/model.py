@@ -71,12 +71,10 @@ def build() -> DesignBundle:
             DesignDecision(
                 "Start with one open enclosure shell.",
                 "This is the smallest geometry that tests the measured envelope.",
-                status="proposed",
             )
         ],
         prototype_stage="concept",
-        test_plan=["Review and approve the rendered interface before a small fit test or full part is prepared."],
-        iterations=[],
+        test_plan=["Use a small fit test if the rendered interface leaves a material uncertainty."],
     )
     return DesignBundle(
         name="functional-cad-example",

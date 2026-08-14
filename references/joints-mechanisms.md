@@ -2,7 +2,7 @@
 
 ## Sliding rails and dovetails
 
-Record travel, load, fit class, insertion direction, lead-in, end stops, retention, debris relief, and removal. Keep sliding faces away from support. After interface approval, propose a short section fit test when the fit is uncertain.
+Record travel, load, fit class, insertion direction, lead-in, end stops, retention, debris relief, and removal. Keep sliding faces away from support. Prepare a short section fit test when the fit is uncertain and the test will answer it.
 
 Do not use a dovetail angle, clearance, or end stop only because it looks conventional. Check whether the part can enter the track after all surrounding geometry exists.
 

@@ -70,9 +70,7 @@ def migrate_v1(data: dict[str, Any]) -> dict[str, Any]:
             "part": str(item.get("part") or "model"),
             "position_mm": position,
             "message": str(item.get("message") or ""),
-            "author": item.get("author") if item.get("author") in {"user", "agent"} else "user",
             "created_at": str(item.get("created_at") or timestamp),
-            "updated_at": str(item.get("updated_at") or timestamp),
         })
     return {
         "schema_version": SCHEMA_VERSION,
@@ -115,8 +113,6 @@ def validate(data: object) -> None:
         if len(set(identifiers)) != len(identifiers):
             raise ValueError(f"Duplicate id in {collection}.")
     for item in data["comments"]:
-        if item.get("author") not in {"user", "agent"}:
-            raise ValueError(f"Invalid comment author: {item.get('author')!r}.")
         position = item.get("position_mm")
         if not isinstance(position, list) or len(position) != 3:
             raise ValueError("Every comment requires a three-value position_mm array.")
@@ -176,11 +172,12 @@ def parser() -> argparse.ArgumentParser:
     initialize.add_argument("--design-id")
     initialize.add_argument("--force", action="store_true")
 
-    progress = commands.add_parser("progress", help="Add or update one visible progress item.")
+    progress = commands.add_parser("progress", help="Set the overall summary or add/update one visible progress item.")
     progress.add_argument("sidecar", type=Path)
-    progress.add_argument("--id", required=True)
+    progress.add_argument("--id")
     progress.add_argument("--title")
-    progress.add_argument("--summary", default="")
+    progress.add_argument("--summary", help="Milestone summary with --id; otherwise the overall summary.")
+    progress.add_argument("--overall-summary", help="Set the overall summary while also updating a milestone.")
 
     comment_add = commands.add_parser("comment-add", help="Attach a comment to a model point.")
     comment_add.add_argument("sidecar", type=Path)
@@ -188,7 +185,6 @@ def parser() -> argparse.ArgumentParser:
     comment_add.add_argument("--part", required=True)
     comment_add.add_argument("--position", required=True, nargs=3, type=float, metavar=("X", "Y", "Z"))
     comment_add.add_argument("--message", required=True)
-    comment_add.add_argument("--author", choices=("user", "agent"), default="user")
 
     comment_remove = commands.add_parser("comment-remove", help="Remove an addressed or unwanted comment.")
     comment_remove.add_argument("sidecar", type=Path)
@@ -216,13 +212,20 @@ def main() -> int:
                 return 0
             timestamp = now()
             if args.command == "progress":
-                existing = next((item for item in data["progress"] if item["id"] == args.id), None)
-                upsert(data["progress"], {
-                    "id": args.id,
-                    "title": args.title or (existing["title"] if existing else args.id.replace("-", " ").title()),
-                    "summary": args.summary,
-                    "updated_at": timestamp,
-                })
+                if args.id:
+                    existing = next((item for item in data["progress"] if item["id"] == args.id), None)
+                    upsert(data["progress"], {
+                        "id": args.id,
+                        "title": args.title or (existing["title"] if existing else args.id.replace("-", " ").title()),
+                        "summary": args.summary if args.summary is not None else (existing["summary"] if existing else ""),
+                        "updated_at": timestamp,
+                    })
+                    if args.overall_summary is not None:
+                        data["summary"] = args.overall_summary
+                else:
+                    if args.title is not None or (args.summary is None and args.overall_summary is None):
+                        raise ValueError("Use progress --summary TEXT to set the overall summary, or provide --id for a milestone.")
+                    data["summary"] = args.overall_summary if args.overall_summary is not None else args.summary
             elif args.command == "comment-add":
                 identifier = args.id or f"comment-{secrets.token_hex(4)}"
                 if any(item["id"] == identifier for item in data["comments"]):
@@ -232,9 +235,7 @@ def main() -> int:
                     "part": args.part,
                     "position_mm": list(args.position),
                     "message": args.message.strip(),
-                    "author": args.author,
                     "created_at": timestamp,
-                    "updated_at": timestamp,
                 })
             elif args.command == "comment-remove":
                 before = len(data["comments"])

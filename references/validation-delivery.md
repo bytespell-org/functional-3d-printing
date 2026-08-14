@@ -84,7 +84,7 @@ Generate into the selected output directory:
 - generated `DESIGN.md` with material, nozzle, orientation, tolerances, hardware, process recommendations, support expectation, assembly, and calibration;
 - static renders;
 - interactive Three.js preview;
-- approved small fit or mechanism tests when risk requires them.
+- small fit or mechanism tests when risk requires them.
 
 Use this output order:
 

@@ -32,7 +32,7 @@ Record:
 
 ## Coupon selection
 
-Propose a small fit test when any condition applies and the user has approved the related interface:
+Prepare a small fit test when any condition applies and it will answer a real uncertainty:
 
 - press, friction, locating, or close sliding fit is function-critical;
 - nominal size is below 10 mm;

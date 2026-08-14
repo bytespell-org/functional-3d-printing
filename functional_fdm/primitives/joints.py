@@ -159,7 +159,7 @@ def cantilever_snap(
         findings=findings,
         print_notes=[
             "Print the beam length and flex direction in the build-plane when possible.",
-            "After the interface is approved, print an isolated engagement and cycle test before the full assembly.",
+            "Print an isolated engagement and cycle test before the full assembly when this interface controls success.",
         ],
     )
 

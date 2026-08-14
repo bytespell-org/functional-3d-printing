@@ -26,11 +26,12 @@ Record:
 - known dimensions;
 - requirements and their evidence status;
 - assumptions and open questions;
-- proposed, user-approved, tested, and rejected decisions;
+- decisions and their reasons;
 - material or hardware that the proposal requires;
 - current prototype stage;
 - smallest next test and its success criteria.
-- physical observations and measurements from each completed test.
+
+Record physical observations and measurements with `scripts/record_iteration.py`, not in `DesignRecord`.
 
 Use these requirement evidence levels:
 
@@ -55,11 +56,11 @@ Show views that answer practical questions:
 - intended print orientation;
 - uncertain fits and unsupported regions.
 
-Add stable labels to features that the user can identify or move. Use the same label in the Python model, browser preview, static review image, design record, and conversation. Define the coordinate frame. For every position or size revision, show numeric before and after values, signed change, and direction. Get visual approval before recommending a physical test. See `visual-review.md`.
+Add stable labels to features that the user can identify or move. Use the same label in the Python model, browser preview, static review image, design record, and conversation. Define the coordinate frame. For a position or size revision, describe the changed dimensions and direction clearly when that helps review. See `visual-review.md`.
 
 State the mechanism, required material and hardware, important assumptions, likely support requirement, and known risks. Ask focused design questions after the user can see the proposal.
 
-Approval has narrow scope. Record only the choice that the user approved. Approval of an envelope does not approve a closure. Approval of a material does not approve glue. Approval of a shape does not approve magnets or screws. Keep all unmentioned choices `proposed`. For each `user-approved` decision, record a short quote or precise paraphrase as its approval basis.
+Record each design decision and its reason plainly. Do not infer that a request for one feature authorizes unrelated hardware, permanent assembly, or material dependencies; ask only when the missing choice materially changes scope, cost, safety, or normal use.
 
 ## Material and hardware policy
 
@@ -80,7 +81,7 @@ Use these stages:
 
 A small fit or mechanism test must have explicit success criteria. Examples include insertion force, retained load, free travel, cycle count, measured play, release method, glass clearance, screw seating, or wire passage.
 
-Do not prepare a test for an interface that the user has not approved. First show the proposed interface and its operation. Then explain in plain language:
+When a fit or mechanism has real uncertainty, prepare the smallest useful test. Show the interface and its operation, then explain in plain language:
 
 - what the small test prints;
 - what question it answers;
@@ -88,6 +89,6 @@ Do not prepare a test for an interface that the user has not approved. First sho
 - how much of the final geometry it preserves;
 - how the result changes the final model.
 
-Ask before preparing the test unless the user already requested it. Do not use “coupon” without immediately defining it as a small test print.
+Ask before preparing the test only when it would exceed the user's scope or require new material, hardware, cost, or authority. Do not use “coupon” without immediately defining it as a small test print.
 
 After a physical test, record the observation, measurement when available, likely cause, smallest change, and next stage. Give assembly instructions that match the printed geometry.

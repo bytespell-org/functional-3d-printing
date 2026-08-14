@@ -30,7 +30,7 @@ For direct plastic threads or self-tapping screws, use a pilot diameter from the
 - Add radial plastic, tool access, insertion direction, bottom relief, and room for displaced plastic.
 - Decide whether the insert is flush or recessed.
 - Keep the heated tool away from thin walls and protected hardware.
-- After the insert choice is approved, print one small boss test with the real insert and tool when compensation is unknown.
+- Print one small boss test with the real insert and tool when compensation is unknown.
 
 Use inserts for repeated service, robust metal threads, or high clamp loads. A heat-set insert does not repair a thin or weakly attached boss.
 

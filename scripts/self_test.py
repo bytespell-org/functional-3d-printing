@@ -279,14 +279,11 @@ def main() -> int:
                 DesignDecision(
                     "Use a sliding cover.",
                     "It needs no additional hardware.",
-                    status="user-approved",
                     alternatives=("screw cover",),
-                    approval_basis="User approved the sliding cover only.",
                 )
             ],
             prototype_stage="small-fit-test",
             test_plan=["Measure insertion force and complete ten cycles."],
-            iterations=[{"revision": 1, "result": "passed", "observation": "Ten cycles completed."}],
         )
         recorded = DesignBundle(
             "recorded",
@@ -297,8 +294,6 @@ def main() -> int:
         manifest = recorded.as_manifest()
         if manifest["design_record"]["prototype_stage"] != "small-fit-test":
             raise RuntimeError("Design record was not included in the manifest.")
-        if manifest["design_record"]["iterations"][0]["result"] != "passed":
-            raise RuntimeError("Physical iteration history was not included in the manifest.")
         if any(f.code.startswith("design-record.") for f in recorded.validate_metadata()):
             raise RuntimeError("A complete design record produced findings.")
 
@@ -346,21 +341,12 @@ def main() -> int:
         ):
             raise RuntimeError("A design delta without a known annotation was accepted.")
 
-        vague_approval = DesignRecord(
-            intent="Reject vague or unsupported approval records.",
-            decisions=[DesignDecision("Use magnets.", "Fast access.", status="accepted")],
+        incomplete_decision = DesignRecord(
+            intent="Require a reason for every recorded choice.",
+            decisions=[DesignDecision("Use magnets.", "")],
         )
-        vague_findings = vague_approval.validate()
-        if not any(f.code == "design-record.invalid-decision-status" for f in vague_findings):
-            raise RuntimeError("The vague accepted decision status was not blocked.")
-
-        missing_basis = DesignRecord(
-            intent="Require scoped approval evidence.",
-            decisions=[DesignDecision("Use magnets.", "Fast access.", status="user-approved")],
-        )
-        basis_findings = missing_basis.validate()
-        if not any(f.code == "design-record.missing-approval-basis" for f in basis_findings):
-            raise RuntimeError("A user-approved decision without an approval basis was not blocked.")
+        if not any(f.code == "design-record.incomplete-decision" for f in incomplete_decision.validate()):
+            raise RuntimeError("A decision without a reason was accepted.")
 
         preview = root / "preview"
         run(
@@ -432,27 +418,44 @@ def main() -> int:
         run([sys.executable, progress_script, "init", str(progress), "--title", "Test enclosure"], 0)
         run([
             sys.executable, progress_script, "progress", str(progress),
+            "--summary", "Reviewing the enclosure.",
+        ], 0)
+        run([
+            sys.executable, progress_script, "progress", str(progress),
             "--id", "visual-review", "--title", "Visual review",
-            "--summary", "Ready for review.",
+            "--summary", "Ready for review.", "--overall-summary", "Checking cable clearance.",
         ], 0)
         run([
             sys.executable, progress_script, "comment-add", str(progress),
             "--id", "comment-usb-clearance", "--part", "test",
             "--position", "0.25", "0.5", "0.75",
-            "--message", "Add a little more cable clearance.", "--author", "user",
+            "--message", "Add a little more cable clearance.",
         ], 0)
         progress_data = json.loads(progress.read_text(encoding="utf-8"))
-        if progress_data["schema_version"] != 2 or progress_data["progress"][0]["title"] != "Visual review":
+        if progress_data["schema_version"] != 2 or progress_data["progress"][0]["title"] != "Visual review" or progress_data["summary"] != "Checking cable clearance.":
             raise RuntimeError("Visible progress was not recorded.")
         comment = progress_data["comments"][0]
         if comment["position_mm"] != [0.25, 0.5, 0.75]:
             raise RuntimeError("Model review point was not preserved.")
-        run([
-            sys.executable, progress_script, "comment-remove", str(progress),
-            "--id", "comment-usb-clearance",
-        ], 0)
+        if "author" in comment or "updated_at" in comment:
+            raise RuntimeError("Comment contains retired attribution or status metadata.")
+
+        class DeleteProbe(PreviewHandler):
+            def __init__(self, path: str, progress_path: Path):
+                self.path = path
+                self.progress_path = progress_path
+                self.manifest_path = root / "preview" / "manifest.json"
+                self.response: tuple[int, object] | None = None
+
+            def send_json(self, status: int, value: object) -> None:
+                self.response = (status, value)
+
+        delete_probe = DeleteProbe("/api/review-comments/comment-usb-clearance", progress)
+        delete_probe.do_DELETE()
+        if delete_probe.response != (200, {"ok": True}):
+            raise RuntimeError("Preview DELETE did not invoke comment removal.")
         if json.loads(progress.read_text(encoding="utf-8"))["comments"]:
-            raise RuntimeError("Addressed comment was not removed.")
+            raise RuntimeError("Preview DELETE did not remove the addressed comment.")
 
         legacy = root / "legacy-progress.json"
         legacy.write_text(json.dumps({
@@ -471,6 +474,8 @@ def main() -> int:
         legacy_data = json.loads(legacy.read_text(encoding="utf-8"))
         if legacy_data["schema_version"] != 2 or len(legacy_data["progress"]) != 1 or [item["id"] for item in legacy_data["comments"]] != ["open", "ack"]:
             raise RuntimeError("v1 sidecar did not migrate safely.")
+        if any("author" in item or "updated_at" in item for item in legacy_data["comments"]):
+            raise RuntimeError("v1 migration retained retired comment fields.")
 
         log = root / "iterations.jsonl"
         run([

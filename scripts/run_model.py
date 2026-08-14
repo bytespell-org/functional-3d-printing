@@ -169,20 +169,12 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
         if not decisions:
             lines.append("- No design decisions recorded.")
         for decision in decisions:
-            lines.append(f"- **{decision['status']}**: {decision['decision']} — {decision['reason']}")
-            if decision.get("approval_basis"):
-                lines.append(f"  - Approval basis: {decision['approval_basis']}")
+            lines.append(f"- {decision['decision']} — {decision['reason']}")
         lines.extend(["", "### Prototype test plan", ""])
         test_plan = record.get("test_plan", [])
         if not test_plan:
             lines.append("- No physical test planned.")
         for item in test_plan:
-            lines.append(f"- {item}")
-        lines.extend(["", "### Physical iterations", ""])
-        iterations = record.get("iterations", [])
-        if not iterations:
-            lines.append("- No physical result recorded.")
-        for item in iterations:
             lines.append(f"- {item}")
         lines.extend(["", "### Additional material and hardware", ""])
         if record.get("available_materials"):
@@ -230,7 +222,7 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
         lines.append(f"- **{finding['severity']} — {finding['code']}**: {finding['message']}")
         if finding.get("recommendation"):
             lines.append(f"  - Action: {finding['recommendation']}")
-    lines.extend(["", "## Small physical tests", "", "Use a small fit or mechanism test only after the related interface is approved. State what it tests, what it does not test, and how the result changes the full model. Do not request printer calibration data by default.", ""])
+    lines.extend(["", "## Small physical tests", "", "Use a small fit or mechanism test whenever it answers a real uncertainty. State what it tests, what it does not test, and how the result changes the full model. Do not request printer calibration data by default.", ""])
     return "\n".join(lines)
 
 

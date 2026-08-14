@@ -75,8 +75,6 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
                 *(str(item) for item in position),
                 "--message",
                 message.strip(),
-                "--author",
-                "user",
             ]
             result = subprocess.run(command, text=True, capture_output=True, check=False)
             if result.returncode != 0:

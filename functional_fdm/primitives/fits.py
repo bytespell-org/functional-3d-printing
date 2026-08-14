@@ -23,7 +23,7 @@ def fit_pair(
                 f"The {fit} fit uses a conservative, uncharacterized profile.",
                 name,
                 {"nominal_mm": nominal_mm, "gap_per_side_mm": profile.gap_per_side(fit)},
-                "After the interface is approved, prepare a small fit test before the full part.",
+                "Prepare a small fit test before the full part when this fit controls success.",
             )
         )
     return FeatureResult(
