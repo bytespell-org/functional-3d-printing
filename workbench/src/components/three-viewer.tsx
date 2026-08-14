@@ -121,15 +121,23 @@ export function ThreeViewer({
       perspective: new THREE.PerspectiveCamera(42, 1, 0.01, 100000),
       ortho: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100000),
     }
+    Object.values(cameras).forEach((item) => item.up.set(0, 0, 1))
     let camera: THREE.Camera = cameras.ortho
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.rotateSpeed = 0.7
+    controls.zoomSpeed = 0.9
+    controls.panSpeed = 0.8
     controls.screenSpacePanning = true
-    // Use the Z-up orbit below for one-finger touch and narrow-view mouse
-    // dragging. OrbitControls assumes Y-up while rotating, which makes this
-    // viewer's Z-up model arc and roll unexpectedly. Keep its two-finger
-    // dolly/pan gesture.
-    controls.touches.ONE = -1 as THREE.TOUCH
+    controls.minPolarAngle = 0.02
+    controls.maxPolarAngle = Math.PI - 0.02
+    controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY
+    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN
+    controls.touches.ONE = THREE.TOUCH.ROTATE
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN
+    controls.cursorStyle = "grab"
 
     const gridHelper = new THREE.GridHelper(200, 40, 0x7c6579, 0x342d37)
     gridHelper.rotation.x = Math.PI / 2
@@ -153,10 +161,6 @@ export function ThreeViewer({
     let measurePoints: THREE.Vector3[] = []
     let measureLine: THREE.Line | null = null
     let markers: THREE.Mesh[] = []
-    const touchPointers = new Set<number>()
-    let turntablePointer: number | null = null
-    let turntableX = 0
-    let turntableY = 0
 
     const disposeObject = (object: THREE.Object3D) => {
       object.traverse((child) => {
@@ -349,99 +353,6 @@ export function ThreeViewer({
     }
     renderer.domElement.addEventListener("pointerdown", pointerDown)
 
-    const turntableDown = (event: PointerEvent) => {
-      if (event.pointerType !== "touch") return
-      touchPointers.add(event.pointerId)
-      if (touchPointers.size === 1 && !measureMode && !commentMode) {
-        turntablePointer = event.pointerId
-        turntableX = event.clientX
-        turntableY = event.clientY
-      } else {
-        turntablePointer = null
-      }
-    }
-    const turntableMove = (event: PointerEvent) => {
-      if (event.pointerId !== turntablePointer || touchPointers.size !== 1)
-        return
-      const deltaX = event.clientX - turntableX
-      const deltaY = event.clientY - turntableY
-      turntableX = event.clientX
-      turntableY = event.clientY
-      if (Math.abs(deltaX) < 0.01 && Math.abs(deltaY) < 0.01) return
-      const offset = camera.position.clone().sub(controls.target)
-      const radius = Math.max(offset.length(), 0.001)
-      let azimuth = Math.atan2(offset.y, offset.x)
-      let elevation = Math.asin(THREE.MathUtils.clamp(offset.z / radius, -1, 1))
-      azimuth -=
-        (deltaX / Math.max(renderer.domElement.clientWidth, 1)) * Math.PI * 1.35
-      elevation +=
-        (-deltaY / Math.max(renderer.domElement.clientHeight, 1)) *
-        Math.PI *
-        1.15
-      elevation = THREE.MathUtils.clamp(
-        elevation,
-        -Math.PI / 2 + 0.06,
-        Math.PI / 2 - 0.06
-      )
-      const horizontalRadius = radius * Math.cos(elevation)
-      offset.set(
-        horizontalRadius * Math.cos(azimuth),
-        horizontalRadius * Math.sin(azimuth),
-        radius * Math.sin(elevation)
-      )
-      camera.position.copy(controls.target).add(offset)
-      camera.up.set(0, 0, 1)
-      camera.lookAt(controls.target)
-      controls.update()
-    }
-    const turntableEnd = (event: PointerEvent) => {
-      touchPointers.delete(event.pointerId)
-      if (event.pointerId === turntablePointer) turntablePointer = null
-    }
-    const narrowMouseDown = (event: PointerEvent) => {
-      if (
-        event.pointerType !== "mouse" ||
-        renderer.domElement.clientWidth >= 1024 ||
-        measureMode ||
-        commentMode
-      )
-        return
-      event.stopImmediatePropagation()
-      touchPointers.add(event.pointerId)
-      turntablePointer = event.pointerId
-      turntableX = event.clientX
-      turntableY = event.clientY
-      renderer.domElement.setPointerCapture(event.pointerId)
-    }
-    const narrowMouseMove = (event: PointerEvent) => {
-      if (
-        event.pointerType !== "mouse" ||
-        renderer.domElement.clientWidth >= 1024 ||
-        event.pointerId !== turntablePointer
-      )
-        return
-      event.stopImmediatePropagation()
-      turntableMove(event)
-    }
-    const narrowMouseEnd = (event: PointerEvent) => {
-      if (
-        event.pointerType !== "mouse" ||
-        renderer.domElement.clientWidth >= 1024 ||
-        event.pointerId !== turntablePointer
-      )
-        return
-      event.stopImmediatePropagation()
-      turntableEnd(event)
-    }
-    renderer.domElement.addEventListener("pointerdown", narrowMouseDown, true)
-    renderer.domElement.addEventListener("pointermove", narrowMouseMove, true)
-    renderer.domElement.addEventListener("pointerup", narrowMouseEnd, true)
-    renderer.domElement.addEventListener("pointercancel", narrowMouseEnd, true)
-    renderer.domElement.addEventListener("pointerdown", turntableDown)
-    renderer.domElement.addEventListener("pointermove", turntableMove)
-    renderer.domElement.addEventListener("pointerup", turntableEnd)
-    renderer.domElement.addEventListener("pointercancel", turntableEnd)
-
     apiRef.current = {
       fit,
       setProjection: (next) => {
@@ -606,26 +517,6 @@ export function ThreeViewer({
       cancelAnimationFrame(frame)
       observer.disconnect()
       renderer.domElement.removeEventListener("pointerdown", pointerDown)
-      renderer.domElement.removeEventListener(
-        "pointerdown",
-        narrowMouseDown,
-        true
-      )
-      renderer.domElement.removeEventListener(
-        "pointermove",
-        narrowMouseMove,
-        true
-      )
-      renderer.domElement.removeEventListener("pointerup", narrowMouseEnd, true)
-      renderer.domElement.removeEventListener(
-        "pointercancel",
-        narrowMouseEnd,
-        true
-      )
-      renderer.domElement.removeEventListener("pointerdown", turntableDown)
-      renderer.domElement.removeEventListener("pointermove", turntableMove)
-      renderer.domElement.removeEventListener("pointerup", turntableEnd)
-      renderer.domElement.removeEventListener("pointercancel", turntableEnd)
       controls.dispose()
       renderer.dispose()
       disposeObject(root)
