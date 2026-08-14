@@ -21,30 +21,73 @@ type ViewerApi = {
   setReviewComments: (comments: ReviewComment[]) => void
 }
 
-function makeLabelSprite(text: string, color: string, height: number) {
+function makeLabelSprite(
+  text: string,
+  color: string,
+  height: number,
+  variant: "annotation" | "comment" = "annotation"
+) {
   const fontSize = 40
+  const lineHeight = 48
   const paddingX = 22
   const paddingY = 12
+  const maximumTextWidth = variant === "comment" ? 600 : 460
   const canvas = document.createElement("canvas")
   const context = canvas.getContext("2d")
   if (!context) throw new Error("Canvas labels are unavailable")
   context.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
-  const width = Math.ceil(context.measureText(text).width + paddingX * 2)
-  const canvasHeight = fontSize + paddingY * 2
+  const words = text.trim().split(/\s+/)
+  const lines: string[] = []
+  let currentLine = ""
+  for (const word of words) {
+    const candidate = currentLine ? `${currentLine} ${word}` : word
+    if (
+      currentLine &&
+      context.measureText(candidate).width > maximumTextWidth
+    ) {
+      lines.push(currentLine)
+      currentLine = word
+    } else {
+      currentLine = candidate
+    }
+  }
+  if (currentLine) lines.push(currentLine)
+  if (!lines.length) lines.push(text)
+  const textWidth = Math.max(
+    ...lines.map((line) => context.measureText(line).width)
+  )
+  const width = Math.ceil(textWidth + paddingX * 2)
+  const canvasHeight = lineHeight * lines.length + paddingY * 2
   canvas.width = width
   canvas.height = canvasHeight
   context.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
-  context.fillStyle = "rgba(23, 21, 26, 0.94)"
-  context.strokeStyle = color
-  context.lineWidth = 3
+  context.fillStyle =
+    variant === "comment"
+      ? "rgba(251, 191, 36, 0.82)"
+      : "rgba(23, 21, 26, 0.78)"
+  context.strokeStyle =
+    variant === "comment" ? "rgba(255, 238, 181, 0.88)" : color
+  context.lineWidth = variant === "comment" ? 2 : 3
   context.beginPath()
-  context.roundRect(1.5, 1.5, width - 3, canvasHeight - 3, 16)
+  context.roundRect(
+    1.5,
+    1.5,
+    width - 3,
+    canvasHeight - 3,
+    variant === "comment" ? 10 : 16
+  )
   context.fill()
   context.stroke()
-  context.fillStyle = "#fafafa"
+  context.fillStyle = variant === "comment" ? "#211a0d" : "rgba(250,250,250,0.94)"
   context.textAlign = "center"
   context.textBaseline = "middle"
-  context.fillText(text, width / 2, canvasHeight / 2 + 1)
+  lines.forEach((line, index) => {
+    context.fillText(
+      line,
+      width / 2,
+      paddingY + lineHeight * (index + 0.5) + 1
+    )
+  })
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -56,7 +99,8 @@ function makeLabelSprite(text: string, color: string, height: number) {
     depthWrite: false,
   })
   const sprite = new THREE.Sprite(material)
-  sprite.scale.set(height * (width / canvasHeight), height, 1)
+  const worldHeight = height * lines.length
+  sprite.scale.set(worldHeight * (width / canvasHeight), worldHeight, 1)
   sprite.renderOrder = 1000
   return sprite
 }
@@ -204,7 +248,15 @@ export function ThreeViewer({
         const radius = Math.max(sphere?.radius || 20, 1)
         const offset = point.clone().sub(sphere?.center || new THREE.Vector3())
         if (offset.lengthSq() < 0.0001) offset.set(0, 0, 1)
-        offset.normalize().multiplyScalar(Math.max(radius * 0.12, 2.5))
+        const radial = offset
+          .clone()
+          .normalize()
+          .multiplyScalar(Math.max(radius * 0.46, 9))
+        const tangent = new THREE.Vector3(-offset.y, offset.x, 0)
+        if (tangent.lengthSq() < 0.0001) tangent.set(1, 0, 0)
+        const fan =
+          (index - (comments.length - 1) / 2) * Math.max(radius * 0.28, 5)
+        offset.copy(radial.add(tangent.normalize().multiplyScalar(fan)))
         const color = "#fbbf24"
         const group = new THREE.Group()
         group.position.copy(point)
@@ -238,9 +290,10 @@ export function ThreeViewer({
         )
         dot.renderOrder = 999
         const label = makeLabelSprite(
-          String(index + 1),
+          item.message,
           color,
-          Math.max(radius * 0.1, 2.5)
+          Math.max(radius * 0.085, 3.2),
+          "comment"
         )
         label.position.copy(offset)
         group.add(leader, dot, label)
@@ -456,7 +509,7 @@ export function ThreeViewer({
             ? meshByName.get(annotation.part)
             : undefined
           const partSphere = owner?.geometry.boundingSphere
-          const leaderLength = Math.max((partSphere?.radius || 20) * 0.3, 6)
+          const leaderLength = Math.max((partSphere?.radius || 20) * 0.52, 10)
           const partCenter = partSphere?.center || new THREE.Vector3()
           const offset = point.clone().sub(partCenter)
           if (offset.lengthSq() < 0.0001) offset.set(0, 0, 1)
