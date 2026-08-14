@@ -33,7 +33,7 @@ export function App() {
   const [manifest, setManifest] = useState<PreviewManifest | null>(null)
   const [progress, setProgress] = useState<DesignProgress | null>(null)
   const [error, setError] = useState("")
-  const [tab, setTab] = useState("review")
+  const [tab, setTab] = useState("comments")
   const [commentAnchor, setCommentAnchor] = useState<CommentAnchor | null>(null)
   const [commentText, setCommentText] = useState("")
   const [postingComment, setPostingComment] = useState(false)
@@ -144,12 +144,6 @@ export function App() {
           <h1 className="min-w-0 flex-1 truncate font-heading text-base font-semibold tracking-tight">
             {progress?.title || manifest.title}
           </h1>
-          <Badge variant="outline" className="hidden sm:inline-flex">
-            {progress?.phase || "loading"}
-          </Badge>
-          <Badge variant="secondary" className="hidden sm:inline-flex">
-            {progress?.status || "loading"}
-          </Badge>
           {!!progress?.review_comments?.length && (
             <Badge variant="secondary" className="sm:hidden">
               {progress.review_comments.length} note
@@ -205,61 +199,12 @@ export function App() {
                   Close
                 </Button>
               </div>
-              <TabsList className="grid h-10 w-full shrink-0 grid-cols-3 rounded-none border-b bg-transparent p-1 lg:h-9 lg:grid-cols-5">
+              <TabsList className="grid h-10 w-full shrink-0 grid-cols-2 rounded-none border-b bg-transparent p-1 lg:h-9">
                 <TabsTrigger value="comments">Comments</TabsTrigger>
-                <TabsTrigger value="review">Changes</TabsTrigger>
-                <TabsTrigger value="progress">Steps</TabsTrigger>
-                <TabsTrigger value="answers" className="hidden lg:flex">
-                  Inputs
-                </TabsTrigger>
-                <TabsTrigger value="learnings" className="hidden lg:flex">
-                  Learn
-                </TabsTrigger>
+                <TabsTrigger value="progress">Progress</TabsTrigger>
               </TabsList>
 
               <ScrollArea className="min-h-0 flex-1">
-                <TabsContent value="review" className="m-0 divide-y">
-                  {(manifest.deltas || []).map((item) => (
-                    <div
-                      key={`${item.annotation_id}-${item.parameter}`}
-                      className="space-y-1.5 p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-xs font-medium">
-                          {item.parameter}
-                        </p>
-                        <Badge variant="outline">{item.review_status}</Badge>
-                      </div>
-                      <p className="text-sm tabular-nums">
-                        {item.before} → {item.after} {item.unit}
-                      </p>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {item.reason}
-                      </p>
-                    </div>
-                  ))}
-                  {(manifest.annotations || []).map((item) => (
-                    <div key={item.id} className="flex gap-2 p-3">
-                      <span
-                        className="mt-1 size-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: item.color || "#fbbf24" }}
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium">{item.label}</p>
-                        {item.description && (
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {item.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {!manifest.deltas?.length &&
-                    !manifest.annotations?.length && (
-                      <p className="p-3 text-xs text-muted-foreground">None</p>
-                    )}
-                </TabsContent>
-
                 <TabsContent value="comments" className="m-0 divide-y">
                   {commentAnchor && (
                     <div className="hidden space-y-2 p-3 lg:block">
@@ -369,76 +314,6 @@ export function App() {
                       )}
                     </div>
                   ))}
-                  <div className="divide-y lg:hidden">
-                    {!!progress?.answers.length && (
-                      <div className="p-3">
-                        <p className="mb-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-                          Inputs
-                        </p>
-                        {progress.answers.map((answer) => (
-                          <div key={answer.id} className="mb-2 last:mb-0">
-                            <p className="text-xs text-muted-foreground">
-                              {answer.question}
-                            </p>
-                            <p className="text-sm">{answer.answer}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {!!progress?.learnings.length && (
-                      <div className="p-3">
-                        <p className="mb-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-                          Learnings
-                        </p>
-                        {progress.learnings.map((learning) => (
-                          <p
-                            key={learning.id}
-                            className="mb-2 text-xs leading-5 last:mb-0"
-                          >
-                            {learning.statement}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="answers" className="m-0 divide-y">
-                  {progress?.answers.map((answer) => (
-                    <div key={answer.id} className="p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          {answer.question}
-                        </p>
-                        <Badge variant="outline">{answer.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-sm font-medium">
-                        {answer.answer}
-                      </p>
-                    </div>
-                  ))}
-                  {!progress?.answers.length && (
-                    <p className="p-3 text-xs text-muted-foreground">None</p>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="learnings" className="m-0 divide-y">
-                  {progress?.learnings.map((learning) => (
-                    <div key={learning.id} className="p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-xs leading-5 font-medium">
-                          {learning.statement}
-                        </p>
-                        <Badge variant="secondary">{learning.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {learning.evidence}
-                      </p>
-                    </div>
-                  ))}
-                  {!progress?.learnings.length && (
-                    <p className="p-3 text-xs text-muted-foreground">None</p>
-                  )}
                 </TabsContent>
               </ScrollArea>
             </Tabs>
