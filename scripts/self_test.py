@@ -38,6 +38,7 @@ from functional_fdm import (  # noqa: E402
 from functional_fdm.primitives import cantilever_snap, fit_pair, magnet_pocket  # noqa: E402
 from functional_fdm.validation import classify_overhang  # noqa: E402
 from run_model import resolve_output_plan  # noqa: E402
+from serve_preview import PreviewHandler  # noqa: E402
 
 
 TETRAHEDRON = """solid test
@@ -391,6 +392,39 @@ def main() -> int:
         if preview_manifest["progress_url"] != "../progress.json":
             raise RuntimeError("Preview does not point to the observable progress sidecar.")
 
+        class HeaderProbe(PreviewHandler):
+            def __init__(self, path: str):
+                self.path = path
+                self.request_version = "HTTP/1.1"
+                self._headers_buffer: list[bytes] = []
+                self.sent_headers: list[tuple[str, str]] = []
+
+            def send_header(self, keyword: str, value: str) -> None:
+                self.sent_headers.append((keyword, value))
+
+            def flush_headers(self) -> None:
+                pass
+
+        for asset_path in (
+            "/preview/",
+            "/preview/manifest.json",
+            "/preview/models/test.stl",
+            "/preview/models/test.step",
+        ):
+            probe = HeaderProbe(asset_path)
+            probe.end_headers()
+            cache_headers = [
+                value
+                for keyword, value in probe.sent_headers
+                if keyword.lower() == "cache-control"
+            ]
+            if cache_headers != [
+                "no-store, no-cache, must-revalidate, max-age=0"
+            ]:
+                raise RuntimeError(
+                    f"Preview asset did not disable browser caching: {asset_path}"
+                )
+
         progress = root / "progress.json"
         progress_script = str(scripts / "update_progress.py")
         run([sys.executable, progress_script, "init", str(progress), "--title", "Test enclosure"], 0)
@@ -498,7 +532,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 28}, indent=2))
+    print(json.dumps({"ok": True, "tests": 29}, indent=2))
     return 0
 
 
