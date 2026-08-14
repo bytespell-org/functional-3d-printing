@@ -63,10 +63,10 @@ function makeLabelSprite(
   context.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
   context.fillStyle =
     variant === "comment"
-      ? "rgba(251, 191, 36, 0.82)"
+      ? "rgba(56, 189, 248, 0.76)"
       : "rgba(23, 21, 26, 0.78)"
   context.strokeStyle =
-    variant === "comment" ? "rgba(255, 238, 181, 0.88)" : color
+    variant === "comment" ? "rgba(186, 230, 253, 0.88)" : color
   context.lineWidth = variant === "comment" ? 2 : 3
   context.beginPath()
   context.roundRect(
@@ -78,7 +78,7 @@ function makeLabelSprite(
   )
   context.fill()
   context.stroke()
-  context.fillStyle = variant === "comment" ? "#211a0d" : "rgba(250,250,250,0.94)"
+  context.fillStyle = variant === "comment" ? "#082f49" : "rgba(250,250,250,0.94)"
   context.textAlign = "center"
   context.textBaseline = "middle"
   lines.forEach((line, index) => {
@@ -257,7 +257,7 @@ export function ThreeViewer({
         const fan =
           (index - (comments.length - 1) / 2) * Math.max(radius * 0.28, 5)
         offset.copy(radial.add(tangent.normalize().multiplyScalar(fan)))
-        const color = "#fbbf24"
+        const color = "#38bdf8"
         const group = new THREE.Group()
         group.position.copy(point)
         group.visible = labelsVisible
@@ -292,7 +292,7 @@ export function ThreeViewer({
         const label = makeLabelSprite(
           item.message,
           color,
-          Math.max(radius * 0.085, 3.2),
+          Math.max(radius * 0.067, 2.5),
           "comment"
         )
         label.position.copy(offset)
