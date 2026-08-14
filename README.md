@@ -6,19 +6,13 @@ The skill uses CadQuery to build editable solid models. It checks fits, assembly
 
 ## Observable 3D review
 
-The browser review gives each critical feature a stable name and shows proposed numeric changes before fabrication. It also keeps the agent's answers, assumptions, progress, and print learnings visible in the same place.
+The browser review gives critical features stable names and keeps the current progress and model comments in one place. Dimensions, assumptions, and decisions stay in the editable `DesignRecord`; physical results stay in the iteration JSONL.
 
-![Observable 3D workbench with model annotations and live progress](docs/images/observable-workbench.jpg)
-
-The workbench reads an atomic `progress.json` sidecar every two seconds, so the human and the agent can review the same current record. The included launcher runs it as a durable background server and reports a local-network URL instead of a localhost-only address.
+The workbench reads an atomic `progress.json` sidecar every two seconds. A comment disappears when the agent has addressed it, and either person can remove it. The included launcher runs it as a durable background server and reports a local-network URL instead of a localhost-only address.
 
 ## Annotated models
 
-![Annotated 3D review with named enclosure features and proposed changes](docs/images/annotated-review-overview.png)
-
-Exploded mode separates the enclosure base and display lid while it keeps their shared review labels visible.
-
-![Exploded annotated 3D review showing the enclosure base and display lid](docs/images/annotated-review-exploded.png)
+Stable annotations make it easy to point to a feature while assembled and exploded views clarify how parts fit together.
 
 It is meant for parts such as:
 

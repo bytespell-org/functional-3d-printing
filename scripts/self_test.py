@@ -373,8 +373,6 @@ def main() -> int:
                 f"test={stl}:#4f7cac",
                 "--annotation",
                 json.dumps(annotation.as_dict()),
-                "--delta",
-                json.dumps(delta.as_dict()),
             ],
             0,
         )
@@ -388,8 +386,6 @@ def main() -> int:
         preview_manifest = json.loads((preview / "manifest.json").read_text(encoding="utf-8"))
         if preview_manifest["annotations"][0]["id"] != "usb-c-opening":
             raise RuntimeError("Preview annotation data is missing.")
-        if preview_manifest["deltas"][0]["review_status"] != "proposed":
-            raise RuntimeError("Preview design delta data is missing.")
         if preview_manifest["progress_url"] != "../progress.json":
             raise RuntimeError("Preview does not point to the observable progress sidecar.")
         preview_part = preview_manifest["parts"][0]
@@ -435,57 +431,46 @@ def main() -> int:
         progress_script = str(scripts / "update_progress.py")
         run([sys.executable, progress_script, "init", str(progress), "--title", "Test enclosure"], 0)
         run([
-            sys.executable, progress_script, "answer", str(progress),
-            "--id", "display-width", "--question", "Display width?",
-            "--answer", "46.2 mm", "--status", "confirmed",
+            sys.executable, progress_script, "progress", str(progress),
+            "--id", "visual-review", "--title", "Visual review",
+            "--summary", "Ready for review.",
         ], 0)
         run([
-            sys.executable, progress_script, "step", str(progress),
-            "--id", "visual-review", "--status", "in-progress",
-            "--summary", "Ready for review.", "--evidence", "preview/manifest.json",
-        ], 0)
-        run([
-            sys.executable, progress_script, "learning", str(progress),
-            "--id", "lid-path", "--statement", "Check the lid insertion path.",
-            "--evidence", "First prototype bound during assembly.",
-        ], 0)
-        run([
-            sys.executable, progress_script, "status", str(progress),
-            "--phase", "visual-review", "--status", "ready-for-review",
-            "--summary", "Review the annotated opening.",
-        ], 0)
-        run([
-            sys.executable, progress_script, "review-add", str(progress),
-            "--id", "review-usb-clearance", "--part", "test",
+            sys.executable, progress_script, "comment-add", str(progress),
+            "--id", "comment-usb-clearance", "--part", "test",
             "--position", "0.25", "0.5", "0.75",
             "--message", "Add a little more cable clearance.", "--author", "user",
         ], 0)
-        run([
-            sys.executable, progress_script, "review-reply", str(progress),
-            "--id", "review-usb-clearance",
-            "--message", "I will increase the opening and rerun the fit check.",
-            "--author", "agent",
-        ], 0)
-        run([
-            sys.executable, progress_script, "review-status", str(progress),
-            "--id", "review-usb-clearance", "--status", "acknowledged",
-        ], 0)
         progress_data = json.loads(progress.read_text(encoding="utf-8"))
-        if progress_data["answers"][0]["answer"] != "46.2 mm":
-            raise RuntimeError("Progress answer was not recorded.")
-        if progress_data["steps"][2]["evidence"] != ["preview/manifest.json"]:
-            raise RuntimeError("Progress evidence was not recorded.")
-        if progress_data["learnings"][0]["status"] != "candidate":
-            raise RuntimeError("Progress learning was not recorded.")
-        if progress_data["status"] != "ready-for-review":
-            raise RuntimeError("Overall progress status was not recorded.")
-        review_comment = progress_data["review_comments"][0]
-        if review_comment["position_mm"] != [0.25, 0.5, 0.75]:
+        if progress_data["schema_version"] != 2 or progress_data["progress"][0]["title"] != "Visual review":
+            raise RuntimeError("Visible progress was not recorded.")
+        comment = progress_data["comments"][0]
+        if comment["position_mm"] != [0.25, 0.5, 0.75]:
             raise RuntimeError("Model review point was not preserved.")
-        if review_comment["status"] != "acknowledged":
-            raise RuntimeError("Model review status was not updated.")
-        if review_comment["replies"][0]["author"] != "agent":
-            raise RuntimeError("Agent review reply was not recorded.")
+        run([
+            sys.executable, progress_script, "comment-remove", str(progress),
+            "--id", "comment-usb-clearance",
+        ], 0)
+        if json.loads(progress.read_text(encoding="utf-8"))["comments"]:
+            raise RuntimeError("Addressed comment was not removed.")
+
+        legacy = root / "legacy-progress.json"
+        legacy.write_text(json.dumps({
+            "schema_version": 1,
+            "design_id": "legacy",
+            "title": "Legacy enclosure",
+            "summary": "Legacy review.",
+            "steps": [{"id": "review", "title": "Review", "summary": "In progress."}],
+            "review_comments": [
+                {"id": "open", "part": "test", "position_mm": [0, 0, 0], "message": "Open", "author": "user", "status": "open"},
+                {"id": "ack", "part": "test", "position_mm": [1, 0, 0], "message": "Acknowledged", "author": "user", "status": "acknowledged"},
+                {"id": "done", "part": "test", "position_mm": [2, 0, 0], "message": "Resolved", "author": "user", "status": "resolved"},
+            ],
+        }), encoding="utf-8")
+        run([sys.executable, progress_script, "show", str(legacy)], 0)
+        legacy_data = json.loads(legacy.read_text(encoding="utf-8"))
+        if legacy_data["schema_version"] != 2 or len(legacy_data["progress"]) != 1 or [item["id"] for item in legacy_data["comments"]] != ["open", "ack"]:
+            raise RuntimeError("v1 sidecar did not migrate safely.")
 
         log = root / "iterations.jsonl"
         run([

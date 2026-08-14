@@ -268,9 +268,6 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
 
     for annotation in bundle.review_annotations:
         preview_review.extend(["--annotation", json.dumps(annotation.as_dict())])
-    for delta in bundle.design_deltas:
-        preview_review.extend(["--delta", json.dumps(delta.as_dict())])
-
     for part in bundle.parts:
         geometry = part.geometry.val() if isinstance(part.geometry, cq.Workplane) else part.geometry
         if geometry is None or not hasattr(geometry, "isValid") or not geometry.isValid():

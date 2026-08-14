@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -10,23 +8,12 @@ import { ThreeViewer } from "@/components/three-viewer"
 import type {
   DesignProgress,
   PreviewManifest,
-  ProgressStep,
   ReviewComment,
 } from "@/types"
 
 type CommentAnchor = {
   part: string
   position_mm: [number, number, number]
-}
-
-const stepTone: Record<
-  ProgressStep["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  complete: "default",
-  "in-progress": "secondary",
-  blocked: "destructive",
-  pending: "outline",
 }
 
 export function App() {
@@ -37,6 +24,7 @@ export function App() {
   const [commentAnchor, setCommentAnchor] = useState<CommentAnchor | null>(null)
   const [commentText, setCommentText] = useState("")
   const [postingComment, setPostingComment] = useState(false)
+  const [removingComment, setRemovingComment] = useState("")
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
 
   useEffect(() => {
@@ -115,20 +103,27 @@ export function App() {
     }
   }
 
-  const completion = useMemo(() => {
-    if (!progress?.steps.length) return 0
-    const weights = {
-      pending: 0,
-      blocked: 0.25,
-      "in-progress": 0.5,
-      complete: 1,
+  const removeComment = async (id: string) => {
+    setRemovingComment(id)
+    try {
+      const response = await fetch(`/api/review-comments/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      })
+      const value = (await response.json()) as { ok: boolean; error?: string }
+      if (!response.ok || !value.ok)
+        throw new Error(value.error || `comment ${response.status}`)
+      setProgress((current) =>
+        current
+          ? { ...current, comments: current.comments.filter((comment) => comment.id !== id) }
+          : current
+      )
+      setError("")
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setRemovingComment("")
     }
-    return Math.round(
-      (progress.steps.reduce((sum, step) => sum + weights[step.status], 0) /
-        progress.steps.length) *
-        100
-    )
-  }, [progress])
+  }
 
   if (!manifest)
     return (
@@ -144,25 +139,18 @@ export function App() {
           <h1 className="min-w-0 flex-1 truncate font-heading text-base font-semibold tracking-tight">
             {progress?.title || manifest.title}
           </h1>
-          {!!progress?.review_comments?.length && (
-            <Badge variant="secondary" className="sm:hidden">
-              {progress.review_comments.length} note
-              {progress.review_comments.length === 1 ? "" : "s"}
-            </Badge>
-          )}
-          <div className="hidden w-28 items-center gap-2 sm:flex">
-            <Progress value={completion} className="h-1.5" />
-            <span className="w-8 text-right text-[10px] text-muted-foreground tabular-nums">
-              {completion}%
+          {!!progress?.comments?.length && (
+            <span className="text-xs text-muted-foreground sm:hidden">
+              {progress.comments.length} comment{progress.comments.length === 1 ? "" : "s"}
             </span>
-          </div>
+          )}
         </header>
 
         <main className="relative grid min-h-0 flex-1 gap-2 p-2 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <section className="min-h-0 overflow-hidden lg:min-h-[28rem]">
             <ThreeViewer
               manifest={manifest}
-              reviewComments={progress?.review_comments || []}
+              reviewComments={progress?.comments || []}
               onPickComment={pickCommentAnchor}
               onOpenReview={() => {
                 setTab("comments")
@@ -251,7 +239,7 @@ export function App() {
                       </div>
                     </div>
                   )}
-                  {(progress?.review_comments || []).map(
+                  {(progress?.comments || []).map(
                     (comment: ReviewComment, index) => (
                       <div key={comment.id} className="p-3">
                         <div className="flex items-start gap-2">
@@ -263,30 +251,25 @@ export function App() {
                               <p className="truncate text-xs font-medium">
                                 {comment.part}
                               </p>
-                              <Badge variant="outline">{comment.status}</Badge>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={`Delete comment on ${comment.part}`}
+                                disabled={removingComment === comment.id}
+                                onClick={() => void removeComment(comment.id)}
+                              >
+                                {removingComment === comment.id ? "Deleting…" : "Delete"}
+                              </Button>
                             </div>
                             <p className="mt-1 text-xs leading-5">
                               {comment.message}
                             </p>
                           </div>
                         </div>
-                        {comment.replies.map((reply) => (
-                          <div
-                            key={reply.id}
-                            className="mt-2 ml-7 border-l pl-2 text-xs leading-5"
-                          >
-                            <span className="mr-1 font-medium capitalize">
-                              {reply.author}
-                            </span>
-                            <span className="text-muted-foreground">
-                              {reply.message}
-                            </span>
-                          </div>
-                        ))}
                       </div>
                     )
                   )}
-                  {!commentAnchor && !progress?.review_comments?.length && (
+                  {!commentAnchor && !progress?.comments?.length && (
                     <p className="p-3 text-xs leading-5 text-muted-foreground">
                       Choose Comment, then click the model.
                     </p>
@@ -297,19 +280,12 @@ export function App() {
                   {progress?.summary && (
                     <p className="p-3 text-xs leading-5">{progress.summary}</p>
                   )}
-                  {progress?.steps.map((step) => (
-                    <div key={step.id} className="p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-xs font-medium">
-                          {step.title}
-                        </p>
-                        <Badge variant={stepTone[step.status]}>
-                          {step.status}
-                        </Badge>
-                      </div>
-                      {step.summary && (
+                  {progress?.progress.map((item) => (
+                    <div key={item.id} className="p-3">
+                      <p className="truncate text-xs font-medium">{item.title}</p>
+                      {item.summary && (
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {step.summary}
+                          {item.summary}
                         </p>
                       )}
                     </div>

@@ -1,123 +1,51 @@
 # Observable workbench
 
-Use one `progress.json` beside the generated `preview/` folder. It is the cross-turn activity record shared by the agent and the user. The editable model's `DesignRecord` remains the source for design metadata included in generated artifacts.
+The workbench is a small shared review surface. It shows only a short summary, progress items, and point-anchored comments. `DesignRecord` remains the source for dimensions, assumptions, questions, and decisions; `record_iteration.py` JSONL remains the source for physical observations and learnings.
 
-## Required update loop
+## Sidecar
 
-Create the sidecar before asking questions:
+Create the sidecar before sharing a review:
 
 ```bash
 python scripts/update_progress.py init /chosen/output/progress.json --title "ESP32 enclosure"
 ```
 
-Record every user answer as soon as it arrives. Use stable, descriptive IDs so a corrected answer replaces the old value:
+Add or update useful visible milestones. Progress has no prescribed statuses or phases:
 
 ```bash
-python scripts/update_progress.py answer /chosen/output/progress.json \
-  --id display-diameter \
-  --question "What is the measured display diameter?" \
-  --answer "46.2 mm" \
-  --source user \
-  --status confirmed
-```
-
-Record explicit assumptions the same way with `--status assumed`. Use `needs-confirmation` when the provisional answer still blocks final fit.
-
-Update a workflow step after meaningful work. Repeating `--evidence` adds unique evidence without deleting earlier evidence. Valid step states are `pending`, `in-progress`, `blocked`, and `complete`:
-
-```bash
-python scripts/update_progress.py step /chosen/output/progress.json \
+python scripts/update_progress.py progress /chosen/output/progress.json \
   --id visual-review \
-  --status in-progress \
-  --summary "Annotated assembly is ready for review." \
-  --evidence "preview/manifest.json"
+  --title "Visual review" \
+  --summary "Annotated preview is ready."
 ```
 
-Update the overall phase separately:
+The only other sidecar commands are `comment-add`, `comment-remove`, and `show`. The script writes atomically and migrates a v1 sidecar on first use. Migration preserves its open and acknowledged comments, drops resolved comments, converts steps into progress items, and discards old answers and learnings because they belong in the canonical design and iteration records.
 
-```bash
-python scripts/update_progress.py status /chosen/output/progress.json \
-  --phase visual-review \
-  --status ready-for-review \
-  --summary "Review the assembly path and USB-C opening before a test print."
-```
+## Comments
 
-Record physical findings as learnings:
-
-```bash
-python scripts/update_progress.py learning /chosen/output/progress.json \
-  --id lid-needs-insertion-path \
-  --statement "A fitted lid also needs a collision-free installation path." \
-  --evidence "Revision 1 fit in place but could not slide over the body." \
-  --status candidate \
-  --applies-to "sliding enclosure lids"
-```
-
-Use `show` to validate and inspect the sidecar. Never update it with ad hoc JSON editing.
-
-## Model review threads
-
-The user can choose **Comment**, click a model face, and post a note. The durable preview server writes the part, local point, and message into `review_comments` in the same sidecar. Treat open and acknowledged comments as a work queue.
-
-At the beginning of every turn after sharing the workbench URL, inspect the sidecar before changing CAD:
+The user can choose **Comment**, click a model face, and post a note. The preview server writes the part, local point, and message into the same sidecar. At the start of every turn after sharing the workbench, inspect comments:
 
 ```bash
 python scripts/update_progress.py show /chosen/output/progress.json
 ```
 
-Reply when the requested action is understood, then acknowledge it:
+After updating the model and the relevant evidence, resolve a comment by removing it. Do not post agent replies, acknowledgements, or statuses:
 
 ```bash
-python scripts/update_progress.py review-reply /chosen/output/progress.json \
-  --id review-a1b2c3d4 \
-  --author agent \
-  --message "I’ll widen this opening by 0.4 mm and rerun the clearance check."
-
-python scripts/update_progress.py review-status /chosen/output/progress.json \
-  --id review-a1b2c3d4 \
-  --status acknowledged
+python scripts/update_progress.py comment-remove /chosen/output/progress.json \
+  --id comment-usb-clearance
 ```
 
-After updating the model and its evidence, add a short result reply and resolve the thread. Do not resolve a comment merely because it was read.
+The browser includes an accessible **Delete** control for comments as well.
 
-```bash
-python scripts/update_progress.py review-reply /chosen/output/progress.json \
-  --id review-a1b2c3d4 \
-  --author agent \
-  --message "Opening widened; the regenerated assembly clears the cable envelope."
+## Serving
 
-python scripts/update_progress.py review-status /chosen/output/progress.json \
-  --id review-a1b2c3d4 \
-  --status resolved
-```
+The compiled React workbench polls `progress.json` every two seconds with caching disabled. Its source lives in `workbench/`; rebuild with `npm run build` and replace `assets/preview/` with `workbench/dist/`.
 
-Agents may create a pin with `review-add --part NAME --position X Y Z --message TEXT --author agent`. Coordinates are millimeters in the selected part’s local STL frame, so the pin remains attached in exploded view.
-
-## Workbench behavior
-
-`run_model.py` creates a missing sidecar as a fallback but does not reconstruct omitted conversation history. The agent remains responsible for recording answers as they arrive.
-
-The compiled React workbench polls `progress.json` every two seconds with cache disabled. It displays:
-
-- overall phase, status, summary, update time, and derived completion;
-- each workflow step with status, summary, and evidence;
-- every confirmed, assumed, or unresolved answer;
-- candidate, validated, and promoted print learnings;
-- the Three.js model, annotations, deltas, measurement tools, and exploded view.
-- point-anchored review threads, status, and agent replies.
-
-The source UI lives in `workbench/`. It was initialized with the current shadcn preset flow and the preset recorded in `workbench/components.json`. Rebuild it with `npm run build`, then replace `assets/preview/` with `workbench/dist/`.
-
-On narrow screens, keep the model full-height and expose only Fit, Comment, and More. Put comment composition above the mobile keyboard, show review threads in a focused sheet, and keep display modes, part visibility, and exploded view inside More. Use Three.js `OrbitControls` with each camera's up vector set to Z before constructing the controls. Keep its standard interaction map: one finger or left mouse rotates in both axes, a pinch or middle mouse zooms, and two fingers or right mouse pans. Allow the polar range to approach both poles so the user can reach top and underside views. Configure the add-on instead of replacing its pointer handling with a custom turntable. Do not compress the full desktop control surface onto a phone viewport.
-
-## Durable LAN delivery
-
-Start the server with:
+Start the generated viewer with the durable server:
 
 ```bash
 python scripts/serve_preview.py /chosen/output/preview --daemon
 ```
 
-The launcher binds to `0.0.0.0`, selects a free port, starts a detached process, waits for an HTTP 200, and prints only LAN-reachable URLs. It writes `.preview-server.json`, `.preview-server.pid`, and `.preview-server.log` beside the output. Use this server rather than a generic static server; it owns the narrow same-origin endpoint that records user comments through `update_progress.py`.
-
-Communicate one printed URL to the user. Do not replace it with `localhost` or `127.0.0.1`. If the script cannot identify a LAN address, use the environment's approved port-sharing method and report that URL instead.
+The launcher binds to `0.0.0.0`, selects a free port, starts a detached process, waits for HTTP 200, and reports LAN URLs. It writes `.preview-server.json`, `.preview-server.pid`, and `.preview-server.log` beside the output. Use it rather than a generic static server because it owns the same-origin endpoints for adding and deleting model comments.

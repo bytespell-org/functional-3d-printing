@@ -41,7 +41,6 @@ def main() -> int:
     parser.add_argument("--part", action="append", required=True, type=parse_part)
     parser.add_argument("--title", default="Functional CAD Preview")
     parser.add_argument("--annotation", action="append", default=[], type=parse_json_object)
-    parser.add_argument("--delta", action="append", default=[], type=parse_json_object)
     parser.add_argument("--progress-url", default="../progress.json")
     args = parser.parse_args()
 
@@ -57,7 +56,6 @@ def main() -> int:
         "title": args.title,
         "parts": [],
         "annotations": args.annotation,
-        "deltas": args.delta,
         "progress_url": args.progress_url,
     }
     used_names: set[str] = set()

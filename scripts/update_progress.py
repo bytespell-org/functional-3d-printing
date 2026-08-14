@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and atomically update the observable functional-CAD progress sidecar."""
+"""Create and atomically update the small observable CAD work sidecar."""
 
 from __future__ import annotations
 
@@ -21,14 +21,7 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-SCHEMA_VERSION = 1
-DEFAULT_STEPS = (
-    ("requirements", "Requirements and known dimensions"),
-    ("proposal", "CAD proposal and assumptions"),
-    ("visual-review", "Interactive visual review"),
-    ("small-test", "Small physical test"),
-    ("final-validation", "Final validation and delivery"),
-)
+SCHEMA_VERSION = 2
 
 
 def now() -> str:
@@ -45,64 +38,90 @@ def empty_sidecar(design_id: str, title: str) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "design_id": design_id,
         "title": title,
-        "status": "active",
-        "phase": "requirements",
-        "summary": "Collecting requirements and known dimensions.",
+        "summary": "",
         "updated_at": timestamp,
-        "answers": [],
-        "steps": [
-            {
-                "id": step_id,
-                "title": step_title,
-                "status": "in-progress" if index == 0 else "pending",
-                "summary": "",
-                "evidence": [],
-                "updated_at": timestamp,
-            }
-            for index, (step_id, step_title) in enumerate(DEFAULT_STEPS)
-        ],
-        "learnings": [],
-        "review_comments": [],
+        "progress": [],
+        "comments": [],
     }
 
 
-def read_sidecar(path: Path) -> dict[str, Any]:
+def migrate_v1(data: dict[str, Any]) -> dict[str, Any]:
+    """Keep visible work and actionable comments from the retired v1 contract."""
+    timestamp = now()
+    progress = []
+    for item in data.get("steps", []):
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        progress.append({
+            "id": item["id"],
+            "title": str(item.get("title") or item["id"].replace("-", " ").title()),
+            "summary": str(item.get("summary") or ""),
+            "updated_at": str(item.get("updated_at") or timestamp),
+        })
+    comments = []
+    for item in data.get("review_comments", []):
+        if not isinstance(item, dict) or item.get("status") == "resolved" or not item.get("id"):
+            continue
+        position = item.get("position_mm")
+        if not isinstance(position, list) or len(position) != 3:
+            continue
+        comments.append({
+            "id": item["id"],
+            "part": str(item.get("part") or "model"),
+            "position_mm": position,
+            "message": str(item.get("message") or ""),
+            "author": item.get("author") if item.get("author") in {"user", "agent"} else "user",
+            "created_at": str(item.get("created_at") or timestamp),
+            "updated_at": str(item.get("updated_at") or timestamp),
+        })
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "design_id": str(data.get("design_id") or slugify(str(data.get("title") or "design"))),
+        "title": str(data.get("title") or "Design"),
+        "summary": str(data.get("summary") or ""),
+        "updated_at": timestamp,
+        "progress": progress,
+        "comments": comments,
+    }
+
+
+def load_sidecar(path: Path) -> tuple[dict[str, Any], bool]:
     if not path.is_file():
         raise ValueError(f"Progress sidecar does not exist: {path}. Run init first.")
     data = json.loads(path.read_text(encoding="utf-8"))
-    data.setdefault("review_comments", [])
+    if not isinstance(data, dict):
+        raise ValueError("Progress sidecar must be a JSON object.")
+    if data.get("schema_version") == 1:
+        return migrate_v1(data), True
     validate(data)
-    return data
+    return data, False
 
 
 def validate(data: object) -> None:
     if not isinstance(data, dict):
         raise ValueError("Progress sidecar must be a JSON object.")
-    required = {"schema_version", "design_id", "title", "status", "phase", "summary", "updated_at", "answers", "steps", "learnings", "review_comments"}
+    required = {"schema_version", "design_id", "title", "summary", "updated_at", "progress", "comments"}
     missing = required - data.keys()
     if missing:
         raise ValueError(f"Progress sidecar is missing: {', '.join(sorted(missing))}.")
     if data["schema_version"] != SCHEMA_VERSION:
         raise ValueError(f"Unsupported schema version: {data['schema_version']!r}.")
-    if data["status"] not in {"active", "blocked", "ready-for-review", "complete"}:
-        raise ValueError(f"Invalid design status: {data['status']!r}.")
-    if not all(isinstance(data[key], list) for key in ("answers", "steps", "learnings", "review_comments")):
-        raise ValueError("answers, steps, learnings, and review_comments must be arrays.")
-    for collection in ("answers", "steps", "learnings", "review_comments"):
+    if not all(isinstance(data[key], list) for key in ("progress", "comments")):
+        raise ValueError("progress and comments must be arrays.")
+    for collection in ("progress", "comments"):
         identifiers = [item.get("id") for item in data[collection] if isinstance(item, dict)]
         if len(identifiers) != len(data[collection]) or any(not value for value in identifiers):
             raise ValueError(f"Every {collection} entry must be an object with an id.")
         if len(set(identifiers)) != len(identifiers):
             raise ValueError(f"Duplicate id in {collection}.")
-    for comment in data["review_comments"]:
-        if comment.get("status") not in {"open", "acknowledged", "resolved"}:
-            raise ValueError(f"Invalid review comment status: {comment.get('status')!r}.")
-        if comment.get("author") not in {"user", "agent"}:
-            raise ValueError(f"Invalid review comment author: {comment.get('author')!r}.")
-        if not isinstance(comment.get("position_mm"), list) or len(comment["position_mm"]) != 3:
-            raise ValueError("Every review comment requires a three-value position_mm array.")
-        if not isinstance(comment.get("replies"), list):
-            raise ValueError("Every review comment requires a replies array.")
+    for item in data["comments"]:
+        if item.get("author") not in {"user", "agent"}:
+            raise ValueError(f"Invalid comment author: {item.get('author')!r}.")
+        position = item.get("position_mm")
+        if not isinstance(position, list) or len(position) != 3:
+            raise ValueError("Every comment requires a three-value position_mm array.")
+        if not isinstance(item.get("message"), str) or not item["message"].strip():
+            raise ValueError("Every comment requires a message.")
 
 
 @contextmanager
@@ -151,62 +170,31 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
 
-    initialize = commands.add_parser("init", help="Create a new sidecar with the standard workflow.")
+    initialize = commands.add_parser("init", help="Create a new minimal work sidecar.")
     initialize.add_argument("sidecar", type=Path)
     initialize.add_argument("--title", required=True)
     initialize.add_argument("--design-id")
     initialize.add_argument("--force", action="store_true")
 
-    answer = commands.add_parser("answer", help="Record or replace one user answer or explicit assumption.")
-    answer.add_argument("sidecar", type=Path)
-    answer.add_argument("--id", required=True)
-    answer.add_argument("--question", required=True)
-    answer.add_argument("--answer", required=True)
-    answer.add_argument("--source", default="user")
-    answer.add_argument("--status", choices=("confirmed", "assumed", "needs-confirmation"), default="confirmed")
+    progress = commands.add_parser("progress", help="Add or update one visible progress item.")
+    progress.add_argument("sidecar", type=Path)
+    progress.add_argument("--id", required=True)
+    progress.add_argument("--title")
+    progress.add_argument("--summary", default="")
 
-    step = commands.add_parser("step", help="Update one workflow step and its evidence.")
-    step.add_argument("sidecar", type=Path)
-    step.add_argument("--id", required=True)
-    step.add_argument("--title")
-    step.add_argument("--status", choices=("pending", "in-progress", "blocked", "complete"), required=True)
-    step.add_argument("--summary", default="")
-    step.add_argument("--evidence", action="append", default=[])
+    comment_add = commands.add_parser("comment-add", help="Attach a comment to a model point.")
+    comment_add.add_argument("sidecar", type=Path)
+    comment_add.add_argument("--id")
+    comment_add.add_argument("--part", required=True)
+    comment_add.add_argument("--position", required=True, nargs=3, type=float, metavar=("X", "Y", "Z"))
+    comment_add.add_argument("--message", required=True)
+    comment_add.add_argument("--author", choices=("user", "agent"), default="user")
 
-    learning = commands.add_parser("learning", help="Record or update one reusable print learning.")
-    learning.add_argument("sidecar", type=Path)
-    learning.add_argument("--id", required=True)
-    learning.add_argument("--statement", required=True)
-    learning.add_argument("--evidence", required=True)
-    learning.add_argument("--status", choices=("candidate", "validated", "promoted"), default="candidate")
-    learning.add_argument("--applies-to", default="this design")
+    comment_remove = commands.add_parser("comment-remove", help="Remove an addressed or unwanted comment.")
+    comment_remove.add_argument("sidecar", type=Path)
+    comment_remove.add_argument("--id", required=True)
 
-    review_add = commands.add_parser("review-add", help="Attach a review comment to a model point.")
-    review_add.add_argument("sidecar", type=Path)
-    review_add.add_argument("--id")
-    review_add.add_argument("--part", required=True)
-    review_add.add_argument("--position", required=True, nargs=3, type=float, metavar=("X", "Y", "Z"))
-    review_add.add_argument("--message", required=True)
-    review_add.add_argument("--author", choices=("user", "agent"), default="user")
-
-    review_reply = commands.add_parser("review-reply", help="Reply to a model review thread.")
-    review_reply.add_argument("sidecar", type=Path)
-    review_reply.add_argument("--id", required=True)
-    review_reply.add_argument("--message", required=True)
-    review_reply.add_argument("--author", choices=("user", "agent"), default="agent")
-
-    review_status = commands.add_parser("review-status", help="Acknowledge or resolve a model review thread.")
-    review_status.add_argument("sidecar", type=Path)
-    review_status.add_argument("--id", required=True)
-    review_status.add_argument("--status", choices=("open", "acknowledged", "resolved"), required=True)
-
-    state = commands.add_parser("status", help="Update the overall phase, status, and summary.")
-    state.add_argument("sidecar", type=Path)
-    state.add_argument("--phase", required=True)
-    state.add_argument("--status", choices=("active", "blocked", "ready-for-review", "complete"), required=True)
-    state.add_argument("--summary", required=True)
-
-    show = commands.add_parser("show", help="Validate and print the sidecar.")
+    show = commands.add_parser("show", help="Validate, migrate, and print the sidecar.")
     show.add_argument("sidecar", type=Path)
     return root
 
@@ -220,51 +208,39 @@ def main() -> int:
                 raise ValueError(f"Refusing to replace existing progress sidecar: {path}")
             data = empty_sidecar(args.design_id or slugify(args.title), args.title)
         else:
-            data = read_sidecar(path)
+            data, migrated = load_sidecar(path)
             if args.command == "show":
+                if migrated:
+                    atomic_write(path, data)
                 print(json.dumps(data, indent=2, ensure_ascii=False))
                 return 0
             timestamp = now()
-            if args.command == "answer":
-                upsert(data["answers"], {"id": args.id, "question": args.question, "answer": args.answer, "source": args.source, "status": args.status, "recorded_at": timestamp})
-            elif args.command == "step":
-                existing = next((item for item in data["steps"] if item["id"] == args.id), None)
-                title = args.title or (existing["title"] if existing else args.id.replace("-", " ").title())
-                evidence = list(dict.fromkeys([*(existing.get("evidence", []) if existing else []), *args.evidence]))
-                upsert(data["steps"], {"id": args.id, "title": title, "status": args.status, "summary": args.summary, "evidence": evidence, "updated_at": timestamp})
-            elif args.command == "learning":
-                upsert(data["learnings"], {"id": args.id, "statement": args.statement, "evidence": args.evidence, "status": args.status, "applies_to": args.applies_to, "recorded_at": timestamp})
-            elif args.command == "review-add":
-                identifier = args.id or f"review-{secrets.token_hex(4)}"
-                if any(item["id"] == identifier for item in data["review_comments"]):
-                    raise ValueError(f"Review comment already exists: {identifier}")
-                data["review_comments"].append({
+            if args.command == "progress":
+                existing = next((item for item in data["progress"] if item["id"] == args.id), None)
+                upsert(data["progress"], {
+                    "id": args.id,
+                    "title": args.title or (existing["title"] if existing else args.id.replace("-", " ").title()),
+                    "summary": args.summary,
+                    "updated_at": timestamp,
+                })
+            elif args.command == "comment-add":
+                identifier = args.id or f"comment-{secrets.token_hex(4)}"
+                if any(item["id"] == identifier for item in data["comments"]):
+                    raise ValueError(f"Comment already exists: {identifier}")
+                data["comments"].append({
                     "id": identifier,
                     "part": args.part,
                     "position_mm": list(args.position),
                     "message": args.message.strip(),
                     "author": args.author,
-                    "status": "open",
                     "created_at": timestamp,
                     "updated_at": timestamp,
-                    "replies": [],
                 })
-            elif args.command in {"review-reply", "review-status"}:
-                comment = next((item for item in data["review_comments"] if item["id"] == args.id), None)
-                if comment is None:
-                    raise ValueError(f"Unknown review comment: {args.id}")
-                if args.command == "review-reply":
-                    comment["replies"].append({
-                        "id": f"reply-{secrets.token_hex(4)}",
-                        "author": args.author,
-                        "message": args.message.strip(),
-                        "created_at": timestamp,
-                    })
-                else:
-                    comment["status"] = args.status
-                comment["updated_at"] = timestamp
-            elif args.command == "status":
-                data.update({"phase": args.phase, "status": args.status, "summary": args.summary})
+            elif args.command == "comment-remove":
+                before = len(data["comments"])
+                data["comments"] = [item for item in data["comments"] if item["id"] != args.id]
+                if len(data["comments"]) == before:
+                    raise ValueError(f"Unknown comment: {args.id}")
             data["updated_at"] = timestamp
         atomic_write(path, data)
     print(json.dumps({"ok": True, "sidecar": str(path), "command": args.command, "updated_at": data["updated_at"]}, indent=2))

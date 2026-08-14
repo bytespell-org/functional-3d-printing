@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import time
+from urllib.parse import unquote
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -66,7 +67,7 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
             command = [
                 sys.executable,
                 str(Path(__file__).with_name("update_progress.py")),
-                "review-add",
+                "comment-add",
                 str(self.progress_path),
                 "--part",
                 part,
@@ -83,6 +84,33 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError(detail)
             self.send_json(201, {"ok": True})
         except (ValueError, json.JSONDecodeError, OSError) as error:
+            self.send_json(400, {"ok": False, "error": str(error)})
+
+    def do_DELETE(self) -> None:
+        prefix = "/api/review-comments/"
+        path = self.path.partition("?")[0]
+        if not path.startswith(prefix):
+            self.send_json(404, {"ok": False, "error": "Unknown endpoint."})
+            return
+        identifier = unquote(path[len(prefix):])
+        if not identifier or "/" in identifier:
+            self.send_json(400, {"ok": False, "error": "A comment id is required."})
+            return
+        try:
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("update_progress.py")),
+                "comment-remove",
+                str(self.progress_path),
+                "--id",
+                identifier,
+            ]
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip() or "Unable to remove comment."
+                raise ValueError(detail)
+            self.send_json(200, {"ok": True})
+        except (ValueError, OSError) as error:
             self.send_json(400, {"ok": False, "error": str(error)})
 
     def end_headers(self) -> None:

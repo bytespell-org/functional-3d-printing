@@ -193,12 +193,7 @@ export function ThreeViewer({
         const offset = point.clone().sub(sphere?.center || new THREE.Vector3())
         if (offset.lengthSq() < 0.0001) offset.set(0, 0, 1)
         offset.normalize().multiplyScalar(Math.max(radius * 0.12, 2.5))
-        const color =
-          item.status === "resolved"
-            ? "#71717a"
-            : item.status === "acknowledged"
-              ? "#38bdf8"
-              : "#fbbf24"
+        const color = "#fbbf24"
         const group = new THREE.Group()
         group.position.copy(point)
         group.visible = labelsVisible
