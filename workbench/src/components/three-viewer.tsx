@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import type { PreviewManifest, ReviewComment } from "@/types"
 
 type Projection = "ortho" | "perspective"
-type RenderMode = "solid" | "wire" | "xray"
+type RenderMode = "solid" | "xray"
 
 type ViewerApi = {
   fit: () => void
@@ -52,41 +52,45 @@ function makeLabelSprite(text: string, color: string, height: number) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
   })
   const sprite = new THREE.Sprite(material)
   sprite.scale.set(height * (width / canvasHeight), height, 1)
+  sprite.renderOrder = 1000
   return sprite
 }
 
 export function ThreeViewer({
   manifest,
   reviewComments,
+  commentMode,
+  onCommentModeChange,
+  measureMode,
+  onMeasureModeChange,
   onPickComment,
-  onOpenReview,
 }: {
   manifest: PreviewManifest
   reviewComments: ReviewComment[]
+  commentMode: boolean
+  onCommentModeChange: (enabled: boolean) => void
+  measureMode: boolean
+  onMeasureModeChange: (enabled: boolean) => void
   onPickComment: (anchor: {
     part: string
     position_mm: [number, number, number]
+    screen_position_px: [number, number]
+    viewport_size_px: [number, number]
   }) => void
-  onOpenReview: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<ViewerApi | null>(null)
   const commentsRef = useRef(reviewComments)
-  const explodeRef = useRef<(value: number) => void>(() => undefined)
   const visibilityRef = useRef(
     new Map(manifest.parts.map((part) => [part.name, true]))
   )
-  const [explode, setExplode] = useState(0)
   const [grid, setGrid] = useState(true)
   const [labels, setLabels] = useState(true)
-  const [comment, setComment] = useState(false)
-  const [measure, setMeasure] = useState(false)
-  const [projection, setProjection] = useState<Projection>("ortho")
   const [renderMode, setRenderMode] = useState<RenderMode>("solid")
   const [message, setMessage] = useState("Loading…")
   const [partVisibility, setPartVisibility] = useState<Record<string, boolean>>(
@@ -97,6 +101,14 @@ export function ThreeViewer({
     commentsRef.current = reviewComments
     apiRef.current?.setReviewComments(reviewComments)
   }, [reviewComments])
+
+  useEffect(() => {
+    apiRef.current?.setCommentMode(commentMode)
+  }, [commentMode])
+
+  useEffect(() => {
+    apiRef.current?.setMeasure(measureMode)
+  }, [measureMode])
 
   useEffect(() => {
     const host = hostRef.current
@@ -204,8 +216,13 @@ export function ThreeViewer({
             offset.length(),
             8
           ),
-          new THREE.MeshBasicMaterial({ color, depthTest: true })
+          new THREE.MeshBasicMaterial({
+            color,
+            depthTest: false,
+            depthWrite: false,
+          })
         )
+        leader.renderOrder = 999
         leader.position.copy(offset).multiplyScalar(0.5)
         leader.quaternion.setFromUnitVectors(
           new THREE.Vector3(0, 1, 0),
@@ -213,8 +230,13 @@ export function ThreeViewer({
         )
         const dot = new THREE.Mesh(
           new THREE.SphereGeometry(Math.max(radius * 0.015, 0.2), 12, 8),
-          new THREE.MeshBasicMaterial({ color, depthTest: true })
+          new THREE.MeshBasicMaterial({
+            color,
+            depthTest: false,
+            depthWrite: false,
+          })
         )
+        dot.renderOrder = 999
         const label = makeLabelSprite(
           String(index + 1),
           color,
@@ -340,10 +362,12 @@ export function ThreeViewer({
       onPickComment({
         part: owner.name,
         position_mm: [localPoint.x, localPoint.y, localPoint.z],
+        screen_position_px: [event.clientX - rect.left, event.clientY - rect.top],
+        viewport_size_px: [rect.width, rect.height],
       })
       commentMode = false
       controls.enabled = true
-      setComment(false)
+      onCommentModeChange(false)
       setMessage("")
     }
     renderer.domElement.addEventListener("pointerdown", pointerDown)
@@ -362,7 +386,7 @@ export function ThreeViewer({
       setRenderMode: (mode) => {
         meshes.forEach((mesh) => {
           const material = mesh.material as THREE.MeshStandardMaterial
-          material.wireframe = mode === "wire"
+              material.wireframe = false
           material.transparent = mode === "xray"
           material.opacity = mode === "xray" ? 0.28 : 1
           material.depthWrite = mode !== "xray"
@@ -400,14 +424,6 @@ export function ThreeViewer({
       },
       setReviewComments: drawReviewComments,
     }
-    explodeRef.current = (value) => {
-      const amount =
-        value * Math.max(bounds.getSize(new THREE.Vector3()).x, 20) * 0.65
-      meshes.forEach((mesh, index) => {
-        mesh.position.x = (index - (meshes.length - 1) / 2) * amount
-      })
-    }
-
     const loader = new STLLoader()
     let disposed = false
     Promise.all(
@@ -458,10 +474,11 @@ export function ThreeViewer({
             ),
             new THREE.MeshBasicMaterial({
               color,
-              depthTest: true,
+              depthTest: false,
               depthWrite: false,
             })
           )
+          leader.renderOrder = 999
           leader.position.copy(offset).multiplyScalar(0.5)
           leader.quaternion.setFromUnitVectors(
             new THREE.Vector3(0, 1, 0),
@@ -473,8 +490,13 @@ export function ThreeViewer({
               12,
               8
             ),
-            new THREE.MeshBasicMaterial({ color, depthTest: true })
+            new THREE.MeshBasicMaterial({
+              color,
+              depthTest: false,
+              depthWrite: false,
+            })
           )
+          dot.renderOrder = 999
           group.add(leader, dot)
           const label = makeLabelSprite(
             annotation.label,
@@ -516,7 +538,7 @@ export function ThreeViewer({
       renderer.dispose()
       disposeObject(root)
     }
-  }, [manifest, onPickComment])
+  }, [manifest, onCommentModeChange, onPickComment])
 
   const togglePart = (name: string) => {
     const visible = !partVisibility[name]
@@ -525,37 +547,12 @@ export function ThreeViewer({
     apiRef.current?.setPartVisible(name, visible)
   }
 
-  const setExplodedView = (value: number) => {
-    const next = Math.max(0, Math.min(1, value))
-    setExplode(next)
-    explodeRef.current(next)
-  }
-
   return (
     <div className="relative h-full min-h-0 overflow-hidden border bg-black/20 lg:min-h-[30rem]">
       <div ref={hostRef} className="absolute inset-0" />
 
       <div className="absolute top-2 left-2 hidden max-w-[calc(100%-1rem)] flex-wrap gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:flex">
-        <Button size="sm" variant="ghost" onClick={() => apiRef.current?.fit()}>
-          Fit
-        </Button>
-        <div className="mx-0.5 w-px bg-border" />
-        {(["ortho", "perspective"] as Projection[]).map((mode) => (
-          <Button
-            key={mode}
-            size="sm"
-            variant={projection === mode ? "secondary" : "ghost"}
-            aria-pressed={projection === mode}
-            onClick={() => {
-              setProjection(mode)
-              apiRef.current?.setProjection(mode)
-            }}
-          >
-            {mode === "ortho" ? "Ortho" : "Perspective"}
-          </Button>
-        ))}
-        <div className="mx-0.5 w-px bg-border" />
-        {(["solid", "wire", "xray"] as RenderMode[]).map((mode) => (
+        {(["solid", "xray"] as RenderMode[]).map((mode) => (
           <Button
             key={mode}
             size="sm"
@@ -600,72 +597,26 @@ export function ThreeViewer({
         </Button>
         <Button
           size="sm"
-          variant={measure ? "default" : "ghost"}
-          aria-pressed={measure}
+          variant={measureMode ? "default" : "ghost"}
+          aria-pressed={measureMode}
           onClick={() => {
-            setMeasure((current) => {
-              const next = !current
-              if (next) setComment(false)
-              apiRef.current?.setMeasure(next)
-              return next
-            })
+            const next = !measureMode
+            if (next) onCommentModeChange(false)
+            onMeasureModeChange(next)
+            apiRef.current?.setMeasure(next)
           }}
         >
           Measure
         </Button>
-        <Button
-          size="sm"
-          variant={comment ? "default" : "ghost"}
-          aria-pressed={comment}
-          onClick={() => {
-            setComment((current) => {
-              const next = !current
-              if (next) setMeasure(false)
-              apiRef.current?.setCommentMode(next)
-              return next
-            })
-          }}
-        >
-          Comment
-        </Button>
       </div>
 
       <div className="absolute top-2 left-2 flex gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur-xl lg:hidden">
-        <Button size="sm" variant="ghost" onClick={() => apiRef.current?.fit()}>
-          Fit
-        </Button>
-        <Button
-          size="sm"
-          variant={comment ? "default" : "secondary"}
-          aria-pressed={comment}
-          onClick={() => {
-            setComment((current) => {
-              const next = !current
-              if (next) setMeasure(false)
-              apiRef.current?.setCommentMode(next)
-              return next
-            })
-          }}
-        >
-          {comment ? "Tap model" : "Comment"}
-        </Button>
         <details className="group relative">
           <summary className="flex h-8 cursor-pointer list-none items-center rounded-md px-3 text-xs font-medium group-open:bg-accent hover:bg-accent">
             More
           </summary>
           <div className="absolute top-10 left-0 w-56 space-y-3 rounded-md border bg-background/95 p-2 shadow-xl backdrop-blur-xl">
             <div className="grid grid-cols-2 gap-1">
-              <Button
-                size="sm"
-                variant={projection === "perspective" ? "secondary" : "ghost"}
-                onClick={() => {
-                  const next = projection === "ortho" ? "perspective" : "ortho"
-                  setProjection(next)
-                  apiRef.current?.setProjection(next)
-                }}
-              >
-                {projection === "ortho" ? "Perspective" : "Ortho"}
-              </Button>
               <Button
                 size="sm"
                 variant={renderMode === "xray" ? "secondary" : "ghost"}
@@ -703,24 +654,15 @@ export function ThreeViewer({
               </Button>
               <Button
                 size="sm"
-                variant={measure ? "default" : "ghost"}
+                variant={measureMode ? "default" : "ghost"}
                 onClick={() => {
-                  setMeasure((current) => {
-                    const next = !current
-                    if (next) setComment(false)
-                    apiRef.current?.setMeasure(next)
-                    return next
-                  })
+                  const next = !measureMode
+                  if (next) onCommentModeChange(false)
+                  onMeasureModeChange(next)
+                  apiRef.current?.setMeasure(next)
                 }}
               >
                 Measure
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setExplodedView(explode === 0 ? 0.5 : 0)}
-              >
-                {explode === 0 ? "Explode" : "Collapse"}
               </Button>
             </div>
             <div className="flex flex-wrap gap-1 border-t pt-2">
@@ -763,47 +705,6 @@ export function ThreeViewer({
           </Button>
         ))}
       </div>
-
-      <div className="absolute right-2 bottom-2 hidden w-52 items-center gap-2 rounded-md border bg-background/90 px-2 py-1 shadow-sm backdrop-blur-xl lg:flex">
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label="Collapse assembly"
-          onClick={() => setExplodedView(explode - 0.25)}
-        >
-          −
-        </Button>
-        <input
-          aria-label="Exploded view"
-          className="min-w-0 flex-1 accent-primary"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={explode}
-          onChange={(event) => setExplodedView(Number(event.target.value))}
-        />
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          aria-label="Explode assembly"
-          onClick={() => setExplodedView(explode + 0.25)}
-        >
-          +
-        </Button>
-        <span className="w-7 text-right text-[10px] text-muted-foreground tabular-nums">
-          {Math.round(explode * 100)}%
-        </span>
-      </div>
-
-      <Button
-        size="sm"
-        variant="secondary"
-        className="absolute right-2 bottom-2 shadow-lg lg:hidden"
-        onClick={onOpenReview}
-      >
-        Review{reviewComments.length ? ` ${reviewComments.length}` : ""}
-      </Button>
 
       {message && (
         <div className="absolute top-11 left-2 rounded bg-foreground px-2 py-1 text-[11px] text-background shadow">
