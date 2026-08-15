@@ -4,6 +4,14 @@
 
 Start from information already available in the request, attachments, drawings, listings, and editable source. Extract useful dimensions before asking questions. Keep all supplied dimensions in one simple measurement map. Do not split them into nominal, measured, estimated, or provisional classes.
 
+Resolve the exact product, variant, and hardware revision before treating a family name such as “ESP32” as fit-controlling truth. If the identity is not recoverable from an attached link, photo, handoff, or source tree, ask for that identity first. Once identified, research it for the user before asking them to measure it. Use this order:
+
+1. manufacturer product page, documentation, repository, mechanical drawing, or CAD download;
+2. authorized distributor documentation tied to the exact manufacturer part number;
+3. clearly identified community CAD only as a provisional visual reference that must be checked against primary dimensions.
+
+Record the source URL, part/revision match, retrieval date, license or redistribution constraint, and whether the source supplies exact geometry or only nominal dimensions. Check at least the outer profile, mounting features, connector positions, and populated heights against published dimensions before trusting downloaded CAD. Do not silently substitute a nearby development-board variant. If no adequate source exists, make a conservative reference envelope and ask only for the physical measurements that control the chosen architecture.
+
 Treat every supplied dimension as known. Use it until the user changes it. Before asking for any dimension, inspect the measurement map. If final fit needs a second measurement, cite the value already recorded and explain why confirmation matters. Never ask for the same value as if the user did not supply it.
 
 Ask only when an answer can materially change:

@@ -49,7 +49,11 @@ The browser includes an accessible delete control on each selected model comment
 
 ## Serving
 
-The compiled React workbench polls `progress.json` every two seconds with caching disabled. Its source lives in `workbench/`; rebuild with `npm run build` and replace `assets/preview/` with `workbench/dist/`.
+The compiled React workbench polls `progress.json` and `manifest.json` in under one second with caching disabled. A changed manifest revision rebuilds the Three.js scene automatically, so the user keeps the same URL and does not need to refresh. Preview generation publishes the manifest atomically and keeps recently superseded content-addressed model files briefly, preventing an open browser from mixing revisions.
+
+Start the server once after the first useful concept. For each iteration, update the short progress summary, change the editable model, and run `run_model.py` again with the same output directory. Do not restart the server: it serves the updated files in place. Full CadQuery execution, tessellation, and audit time still applies; the live update removes avoidable server restarts and browser-refresh latency rather than hiding that work.
+
+The workbench source lives in `workbench/`; rebuild it with `npm run build` and replace `assets/preview/` with `workbench/dist/`.
 
 Start the generated viewer with the durable server:
 

@@ -393,16 +393,15 @@ def main() -> int:
             raise RuntimeError("A decision without a reason was accepted.")
 
         preview = root / "preview"
-        run(
-            [
-                sys.executable,
-                str(scripts / "build_preview.py"),
-                "--output",
-                str(preview),
-                "--part",
-                f"test={stl}:#4f7cac",
-                "--reference",
-                json.dumps({
+        preview_command = [
+            sys.executable,
+            str(scripts / "build_preview.py"),
+            "--output",
+            str(preview),
+            "--part",
+            f"test={stl}:#4f7cac",
+            "--reference",
+            json.dumps({
                     "name": "battery",
                     "path": str(stl),
                     "color": "#38bdf8",
@@ -410,12 +409,11 @@ def main() -> int:
                     "position_mm": [1, 2, 3],
                     "rotation_deg": [0, 0, 90],
                     "nominal_size_mm": [25, 40, 10],
-                }),
-                "--annotation",
-                json.dumps(annotation.as_dict()),
-            ],
-            0,
-        )
+            }),
+            "--annotation",
+            json.dumps(annotation.as_dict()),
+        ]
+        run(preview_command, 0)
         for required in ("index.html", "manifest.json"):
             if not (preview / required).is_file():
                 raise RuntimeError(f"Preview is missing {required}.")
@@ -433,11 +431,24 @@ def main() -> int:
             raise RuntimeError("Preview model URL is not content-addressed.")
         if len(preview_part.get("sha256", "")) != 64:
             raise RuntimeError("Preview manifest is missing the full model digest.")
+        if len(preview_manifest.get("revision", "")) != 64:
+            raise RuntimeError("Preview manifest is missing its live revision digest.")
         preview_reference = preview_manifest["references"][0]
         if preview_reference["role"] != "reference" or preview_reference["position_mm"] != [1.0, 2.0, 3.0]:
             raise RuntimeError("Preview reference component transform is missing.")
         if not preview_reference["file"].startswith("models/ref-"):
             raise RuntimeError("Reference component was not isolated from printable part naming.")
+
+        previous_revision = preview_manifest["revision"]
+        previous_model = preview / preview_part["file"]
+        stl.write_text(stl.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        run(preview_command, 0)
+        refreshed_manifest = json.loads((preview / "manifest.json").read_text(encoding="utf-8"))
+        if refreshed_manifest["revision"] == previous_revision:
+            raise RuntimeError("A changed model did not publish a new preview revision.")
+        refreshed_model = preview / refreshed_manifest["parts"][0]["file"]
+        if not previous_model.is_file() or not refreshed_model.is_file():
+            raise RuntimeError("Live preview publication removed a model needed by an open browser.")
 
         class HeaderProbe(PreviewHandler):
             def __init__(self, path: str):
@@ -587,7 +598,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 32}, indent=2))
+    print(json.dumps({"ok": True, "tests": 34}, indent=2))
     return 0
 
 

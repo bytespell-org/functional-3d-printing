@@ -1,5 +1,11 @@
 # Sources, licenses, and CAD runtime
 
+## Hardware source discovery
+
+For a named board or component, search primary sources before asking the user to reproduce information that is already published. Prefer the exact manufacturer's CAD, mechanical drawing, product documentation, and source repository. Use authorized distributor documents only when they match the exact manufacturer part number. Treat community models as provisional unless primary dimensions independently verify the fit-controlling geometry.
+
+Keep a short provenance record in `DesignRecord`: source URL, product and revision match, retrieval date, license or redistribution constraint, coordinate transform, and the dimensions checked against the source. Do not redistribute a downloaded model when its license is unclear; keep a local reference and provide the source link instead. A detailed STEP file is not automatically correct—verify outline, mounting features, connectors, and maximum populated heights before using it for clearance.
+
 ## Runtime
 
 Use Python 3.12 for the tested runtime. CadQuery 2.8.0 does not support the Python 3.13 host used during development.

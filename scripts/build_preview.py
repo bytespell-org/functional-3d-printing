@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 
@@ -58,6 +60,12 @@ def parse_reference(value: str) -> dict[str, object]:
     return parsed
 
 
+def write_json_atomic(path: Path, value: dict[str, object]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
@@ -70,9 +78,8 @@ def main() -> int:
 
     asset_root = Path(__file__).resolve().parents[1] / "assets" / "preview"
     output = args.output
-    if output.exists():
-        shutil.rmtree(output)
-    shutil.copytree(asset_root, output)
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(asset_root, output, dirs_exist_ok=True)
     model_dir = output / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +131,23 @@ def main() -> int:
                 "sha256": digest,
             }
         )
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    revision_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    manifest["revision"] = hashlib.sha256(revision_payload).hexdigest()
+    write_json_atomic(output / "manifest.json", manifest)
+
+    active_models = {
+        Path(str(item["file"])).name
+        for collection in (manifest["parts"], manifest["references"])
+        for item in collection
+    }
+    stale_before = time.time() - 60.0
+    for candidate in model_dir.iterdir():
+        if (
+            candidate.is_file()
+            and candidate.name not in active_models
+            and candidate.stat().st_mtime < stale_before
+        ):
+            candidate.unlink()
     print(json.dumps({
         "ok": True,
         "preview": str(output / "index.html"),

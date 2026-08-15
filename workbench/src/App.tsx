@@ -35,23 +35,48 @@ export function App() {
   const [removingComment, setRemovingComment] = useState("")
 
   useEffect(() => {
-    fetch("manifest.json", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`manifest ${response.status}`)
-        return response.json()
-      })
-      .then((value: PreviewManifest) => setManifest(value))
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : String(reason))
-      )
+    let stopped = false
+    let hasManifest = false
+    let timer = 0
+    const refresh = () => {
+      void fetch("manifest.json", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error(`manifest ${response.status}`)
+          return response.json()
+        })
+        .then((value: PreviewManifest) => {
+          if (stopped) return
+          const firstManifest = !hasManifest
+          hasManifest = true
+          setManifest((current) => {
+            const currentRevision = current?.revision || JSON.stringify(current)
+            const nextRevision = value.revision || JSON.stringify(value)
+            return currentRevision === nextRevision ? current : value
+          })
+          if (firstManifest) setError("")
+        })
+        .catch((reason: unknown) => {
+          if (!stopped && !hasManifest)
+            setError(reason instanceof Error ? reason.message : String(reason))
+        })
+        .finally(() => {
+          if (!stopped) timer = window.setTimeout(refresh, 750)
+        })
+    }
+    refresh()
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
   }, [])
 
   useEffect(() => {
     if (!manifest) return
     const progressUrl = manifest.progress_url || "../progress.json"
     let stopped = false
-    const refresh = () =>
-      fetch(progressUrl, { cache: "no-store" })
+    let timer = 0
+    const refresh = () => {
+      void fetch(progressUrl, { cache: "no-store" })
         .then((response) => {
           if (!response.ok) throw new Error(`progress ${response.status}`)
           return response.json()
@@ -66,11 +91,14 @@ export function App() {
           if (!stopped)
             setError(reason instanceof Error ? reason.message : String(reason))
         })
-    void refresh()
-    const timer = window.setInterval(refresh, 2000)
+        .finally(() => {
+          if (!stopped) timer = window.setTimeout(refresh, 750)
+        })
+    }
+    refresh()
     return () => {
       stopped = true
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
     }
   }, [manifest])
 

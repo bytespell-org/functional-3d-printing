@@ -27,6 +27,7 @@ export type ReviewAnnotation = {
 }
 
 export type PreviewManifest = {
+  revision?: string
   title: string
   parts: PreviewPart[]
   references?: PreviewReference[]
