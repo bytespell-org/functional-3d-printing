@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThreeViewer } from "@/components/three-viewer"
+import { readReviewToken } from "@/review-token"
 import type { DesignProgress, PreviewManifest, ReviewComment } from "@/types"
 
 type CommentAnchor = {
@@ -21,7 +22,7 @@ type SelectedComment = ReviewComment & {
 }
 
 export function App() {
-  const reviewToken = new URLSearchParams(window.location.search).get("token") || ""
+  const [reviewToken] = useState(readReviewToken)
   const mutationHeaders: Record<string, string> = reviewToken
     ? { Authorization: `Bearer ${reviewToken}` }
     : {}

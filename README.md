@@ -8,7 +8,7 @@ The skill uses CadQuery to build editable solid models. Its workflow scales from
 
 The browser review gives critical features stable names and keeps the current progress and model comments in one place. Dimensions, assumptions, and decisions stay in the editable `DesignRecord`; physical results stay in the iteration JSONL.
 
-For collaborative iteration, the workbench reads an atomic `progress.json` sidecar and displays point-anchored comments. The server is loopback-only by default; trusted-LAN sharing requires explicit `--lan`, and comment changes require the generated session token. A simple part can stop at static images and the portable preview folder without starting a server.
+For collaborative iteration, the workbench reads an atomic `progress.json` sidecar and displays point-anchored comments. The server is loopback-only by default; trusted-LAN sharing requires explicit `--lan`, and comment changes require the temporary session token carried in the review URL fragment. Browser fragments are not sent in ordinary HTTP requests. A simple part can stop at static images and the portable preview folder without starting a server.
 
 ## Annotated models
 

@@ -67,4 +67,8 @@ For trusted-LAN collaboration, opt in explicitly:
 python scripts/serve_preview.py /chosen/output/preview --lan --daemon
 ```
 
-The launcher selects a free port, starts a detached process, waits for HTTP 200, and prints a tokenized review URL. LAN mode prints a warning: anyone with that URL can add or delete comments. Static assets remain readable without authentication; comment mutations require the generated session token. The token is runtime-only and is never written into generated portable preview assets. The launcher writes `.preview-server.json`, `.preview-server.pid`, and `.preview-server.log` beside the output.
+The launcher selects a free port, starts a detached process, waits for HTTP 200, and prints a temporary review URL such as `http://host:port/preview/#token=...`. The fragment stays in the browser and is sent only as a bearer header for comment creation or deletion; static assets and live manifest refresh need no token. LAN mode prints a warning because anyone with the complete review URL can change comments.
+
+The daemon receives its token through `FUNCTIONAL_FDM_REVIEW_TOKEN`, not its command line. `.preview-server.json` stores only non-secret state and `base_urls`; it never stores the token or a review URL. The parent constructs `review_urls` in memory for its final stdout response, while `.preview-server.log` contains no token. Treat the complete fragment-bearing URL as a temporary collaboration capability. The launcher also writes `.preview-server.pid` and `.preview-server.log` beside the output.
+
+Older `?token=` links are migrated in the browser with `history.replaceState`: the token moves into the fragment and is removed from the query before the workbench begins its manifest and progress requests. Newly generated links never use query tokens. The root-relative `/api/review-comments` mutation path is intentional because the bundled server owns that endpoint even when the viewer itself is nested under `/preview/`.

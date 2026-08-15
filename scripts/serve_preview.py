@@ -10,6 +10,7 @@ import http.server
 import json
 import math
 import os
+import re
 import socket
 import secrets
 import subprocess
@@ -19,6 +20,8 @@ from urllib.parse import quote, unquote
 import urllib.request
 import webbrowser
 from pathlib import Path
+
+REVIEW_TOKEN_ENV = "FUNCTIONAL_FDM_REVIEW_TOKEN"
 
 
 class PreviewHandler(http.server.SimpleHTTPRequestHandler):
@@ -138,6 +141,17 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
             return False
         return True
 
+    def log_message(self, format: str, *args: object) -> None:
+        # Legacy query-token URLs can reach the server once before the browser
+        # migrates them. Never preserve that token in access logs.
+        redacted = tuple(
+            re.sub(r"([?&]token=)[^&#\s]+", r"\1[redacted]", item)
+            if isinstance(item, str)
+            else item
+            for item in args
+        )
+        super().log_message(format, *redacted)
+
     def end_headers(self) -> None:
         # Review builds intentionally reuse stable model filenames. Disable
         # caching for every response so a normal refresh cannot mix a new
@@ -190,6 +204,11 @@ def resolve_preview(path: Path) -> tuple[Path, Path, str]:
     return preview, root, f"/{preview.name}/"
 
 
+def build_review_urls(base_urls: list[str], token: str) -> list[str]:
+    """Return browser-local capability URLs; fragments never reach HTTP."""
+    return [f"{url}#token={quote(token, safe='')}" for url in base_urls]
+
+
 def write_json(path: Path, value: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -197,7 +216,7 @@ def write_json(path: Path, value: dict[str, object]) -> None:
     os.replace(temporary, path)
 
 
-def daemonize(args: argparse.Namespace, preview: Path) -> int:
+def daemonize(args: argparse.Namespace, preview: Path, token: str) -> int:
     info_file = (args.info_file or preview.parent / ".preview-server.json").resolve()
     pid_file = (args.pid_file or preview.parent / ".preview-server.pid").resolve()
     log_file = (args.log_file or preview.parent / ".preview-server.log").resolve()
@@ -212,8 +231,7 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
         args.host,
         "--port",
         str(args.port),
-        "--token",
-        args.token,
+        "--daemon-child",
         "--info-file",
         str(info_file),
         "--pid-file",
@@ -221,6 +239,8 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
         "--log-file",
         str(log_file),
     ]
+    child_environment = dict(os.environ)
+    child_environment[REVIEW_TOKEN_ENV] = token
     with log_file.open("ab", buffering=0) as log:
         process = subprocess.Popen(
             command,
@@ -229,6 +249,7 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
             stderr=subprocess.STDOUT,
             start_new_session=True,
             close_fds=True,
+            env=child_environment,
         )
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
@@ -236,13 +257,23 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
             raise RuntimeError(f"Preview server exited during startup. Inspect {log_file}.")
         if info_file.is_file():
             info = json.loads(info_file.read_text(encoding="utf-8"))
-            urls = info.get("urls", [])
-            if urls:
+            base_urls = info.get("base_urls", [])
+            if base_urls:
                 try:
-                    with urllib.request.urlopen(urls[0], timeout=2) as response:
+                    with urllib.request.urlopen(base_urls[0], timeout=2) as response:
                         if response.status == 200:
-                            info.update({"durable": True, "log_file": str(log_file), "pid_file": str(pid_file)})
-                            print(json.dumps(info, indent=2), flush=True)
+                            review_urls = build_review_urls(base_urls, token)
+                            result = {
+                                **info,
+                                "review_urls": review_urls,
+                                "urls": review_urls,
+                                "durable": True,
+                                "log_file": str(log_file),
+                                "pid_file": str(pid_file),
+                            }
+                            if args.open:
+                                webbrowser.open(review_urls[0])
+                            print(json.dumps(result, indent=2), flush=True)
                             return 0
                 except OSError:
                     pass
@@ -262,16 +293,20 @@ def main() -> int:
     parser.add_argument("--info-file", type=Path, help="JSON file for server address and reachable URLs.")
     parser.add_argument("--pid-file", type=Path, help="File that records the detached server PID.")
     parser.add_argument("--log-file", type=Path, help="File for detached server logs.")
-    parser.add_argument("--token", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--daemon-child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.lan:
         if args.host != "127.0.0.1":
             raise ValueError("Use either --lan or --host for network exposure, not both.")
         args.host = "0.0.0.0"
-    args.token = args.token or secrets.token_urlsafe(24)
+    token = os.environ.get(REVIEW_TOKEN_ENV) or secrets.token_urlsafe(24)
     preview, root, url_path = resolve_preview(args.preview)
     if args.daemon:
-        return daemonize(args, preview)
+        return daemonize(args, preview, token)
+
+    # Keep the capability in memory after startup; mutation helper processes
+    # must not inherit it from the server environment.
+    os.environ.pop(REVIEW_TOKEN_ENV, None)
 
     hosts = reachable_hosts(args.host)
     if not hosts:
@@ -281,31 +316,38 @@ def main() -> int:
         directory=str(root),
         progress_path=preview.parent / "progress.json",
         manifest_path=preview / "manifest.json",
-        mutation_token=args.token,
+        mutation_token=token,
     )
     server = PreviewServer((args.host, args.port), handler)
     port = int(server.server_address[1])
-    urls = [f"http://{host}:{port}{url_path}?token={quote(args.token)}" for host in hosts]
+    base_urls = [f"http://{host}:{port}{url_path}" for host in hosts]
+    review_urls = build_review_urls(base_urls, token)
     lan_mode = args.host not in {"127.0.0.1", "localhost", "::1"} and not args.host.startswith("127.")
-    info = {
+    safe_info = {
         "host": args.host,
         "port": port,
         "pid": os.getpid(),
         "preview": str(preview),
         "progress": str(preview.parent / "progress.json"),
-        "urls": urls,
+        "base_urls": base_urls,
         "lan_mode": lan_mode,
     }
     if lan_mode:
-        info["warning"] = "LAN review is active. Anyone with the tokenized URL can change comments."
+        safe_info["warning"] = "LAN review is active. Anyone with the complete review URL can change comments."
     if args.info_file:
-        write_json(args.info_file.resolve(), info)
+        write_json(args.info_file.resolve(), safe_info)
     if args.pid_file:
         args.pid_file.parent.mkdir(parents=True, exist_ok=True)
         args.pid_file.write_text(f"{os.getpid()}\n", encoding="utf-8")
-    print(json.dumps(info), flush=True)
+    output = safe_info if args.daemon_child else {
+        **safe_info,
+        "review_urls": review_urls,
+        # Compatibility for callers that consumed the former `urls` field.
+        "urls": review_urls,
+    }
+    print(json.dumps(output), flush=True)
     if args.open:
-        webbrowser.open(urls[0])
+        webbrowser.open(review_urls[0])
     try:
         server.serve_forever()
     except KeyboardInterrupt:

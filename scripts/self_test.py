@@ -6,9 +6,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -42,7 +47,7 @@ from functional_fdm import (  # noqa: E402
 from functional_fdm.primitives import cantilever_snap, fit_pair, magnet_pocket  # noqa: E402
 from functional_fdm.validation import classify_overhang  # noqa: E402
 from run_model import resolve_output_plan  # noqa: E402
-from serve_preview import PreviewHandler  # noqa: E402
+from serve_preview import PreviewHandler, REVIEW_TOKEN_ENV, build_review_urls  # noqa: E402
 
 
 TETRAHEDRON = """solid test
@@ -625,6 +630,131 @@ def main() -> int:
         if json.loads(progress.read_text(encoding="utf-8"))["comments"]:
             raise RuntimeError("Preview DELETE did not remove the addressed comment.")
 
+        deterministic_token = "deterministic-review-token-for-tests"
+        base_url_examples = ["http://127.0.0.1:12345/preview/"]
+        generated_review_urls = build_review_urls(base_url_examples, deterministic_token)
+        if generated_review_urls != [
+            f"http://127.0.0.1:12345/preview/#token={deterministic_token}"
+        ]:
+            raise RuntimeError("Review URL generation did not use a browser fragment.")
+        if any("?token=" in url for url in generated_review_urls) or any(
+            deterministic_token in base or "token=" in base for base in base_url_examples
+        ):
+            raise RuntimeError("A base or generated review URL transports the token in a query string.")
+
+        daemon_info = root / "daemon-info.json"
+        daemon_pid = root / "daemon.pid"
+        daemon_log = root / "daemon.log"
+        daemon_environment = dict(os.environ)
+        daemon_environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        daemon_environment[REVIEW_TOKEN_ENV] = deterministic_token
+        daemon_result = subprocess.run(
+            [
+                sys.executable,
+                str(scripts / "serve_preview.py"),
+                str(preview),
+                "--daemon",
+                "--info-file",
+                str(daemon_info),
+                "--pid-file",
+                str(daemon_pid),
+                "--log-file",
+                str(daemon_log),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+            env=daemon_environment,
+        )
+        if daemon_result.returncode:
+            raise RuntimeError(f"Daemon preview failed: {daemon_result.stdout}\n{daemon_result.stderr}")
+        daemon_output = json.loads(daemon_result.stdout)
+        child_pid = int(daemon_output["pid"])
+
+        def http_request(
+            url: str,
+            *,
+            method: str = "GET",
+            token: str = "",
+            value: dict[str, object] | None = None,
+        ) -> tuple[int, bytes]:
+            headers: dict[str, str] = {}
+            data = None
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            if value is not None:
+                headers["Content-Type"] = "application/json"
+                data = json.dumps(value).encode("utf-8")
+            request = urllib.request.Request(url, method=method, headers=headers, data=data)
+            try:
+                with urllib.request.urlopen(request, timeout=3) as response:
+                    return response.status, response.read()
+            except urllib.error.HTTPError as error:
+                return error.code, error.read()
+
+        try:
+            persisted_text = daemon_info.read_text(encoding="utf-8")
+            persisted = json.loads(persisted_text)
+            if deterministic_token in persisted_text or "review_urls" in persisted or "urls" in persisted:
+                raise RuntimeError("Persistent server info contains a token or tokenized URL field.")
+            if persisted.get("base_urls") != daemon_output.get("base_urls"):
+                raise RuntimeError("Daemon output and persistent safe base URLs differ.")
+            if any(deterministic_token in url or "token=" in url for url in persisted["base_urls"]):
+                raise RuntimeError("A persisted base URL contains mutation capability.")
+            review_urls = daemon_output.get("review_urls", [])
+            if not review_urls or any("#token=" not in url or "?token=" in url for url in review_urls):
+                raise RuntimeError("Daemon parent did not return fragment-token review URLs.")
+            if daemon_output.get("urls") != review_urls:
+                raise RuntimeError("The compatibility urls field does not match review_urls.")
+
+            process_line = subprocess.run(
+                ["ps", "-p", str(child_pid), "-o", "command="],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout
+            if deterministic_token in process_line or "--token" in process_line:
+                raise RuntimeError("Daemon child command arguments expose the review token.")
+
+            base_url = persisted["base_urls"][0]
+            if http_request(review_urls[0])[0] != 200:
+                raise RuntimeError("Static preview failed without authentication.")
+            api_url = urllib.parse.urljoin(base_url, "/api/review-comments")
+            comment_payload = {
+                "part": "test",
+                "position_mm": [0.1, 0.2, 0.3],
+                "message": "Authenticated integration test.",
+            }
+            if http_request(api_url, method="POST", value=comment_payload)[0] != 401:
+                raise RuntimeError("Unauthenticated comment creation was accepted.")
+            if http_request(api_url, method="POST", token="wrong-token", value=comment_payload)[0] != 401:
+                raise RuntimeError("An incorrect bearer token was accepted.")
+            if http_request(api_url, method="POST", token=deterministic_token, value=comment_payload)[0] != 201:
+                raise RuntimeError("The daemon child did not receive the environment token.")
+            created_comment = json.loads(progress.read_text(encoding="utf-8"))["comments"][0]
+            delete_url = f"{api_url}/{created_comment['id']}"
+            if http_request(delete_url, method="DELETE")[0] != 401:
+                raise RuntimeError("Unauthenticated comment deletion was accepted.")
+            if http_request(delete_url, method="DELETE", token="wrong-token")[0] != 401:
+                raise RuntimeError("Incorrect-token comment deletion was accepted.")
+            if http_request(delete_url, method="DELETE", token=deterministic_token)[0] != 200:
+                raise RuntimeError("Authenticated comment deletion failed.")
+
+            # Exercise legacy query input only to prove it is redacted from logs.
+            if http_request(f"{base_url}?token={deterministic_token}")[0] != 200:
+                raise RuntimeError("Legacy query URL could not load for browser migration.")
+            time.sleep(0.1)
+            if deterministic_token in daemon_log.read_text(encoding="utf-8"):
+                raise RuntimeError("Daemon log contains the review token.")
+        finally:
+            os.kill(child_pid, signal.SIGTERM)
+            for _ in range(30):
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+
         legacy = root / "legacy-progress.json"
         legacy.write_text(json.dumps({
             "schema_version": 1,
@@ -696,7 +826,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 42}, indent=2))
+    print(json.dumps({"ok": True, "tests": 51}, indent=2))
     return 0
 
 
