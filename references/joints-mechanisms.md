@@ -4,6 +4,8 @@
 
 Record travel, load, fit class, insertion direction, lead-in, end stops, retention, debris relief, and removal. Keep sliding faces away from support. Prepare a short section fit test when the fit is uncertain and the test will answer it.
 
+Choose the collision check that matches the motion. `check_assembly_insertion_path` is straight translation only. Use `check_rotational_motion_path` for a fixed-axis hinge and `check_sampled_motion_path` for caller-supplied bayonet, curved, or compound poses. Sampling is evidence for the poses checked, not a universal motion proof.
+
 Do not use a dovetail angle, clearance, or end stop only because it looks conventional. Check whether the part can enter the track after all surrounding geometry exists.
 
 ## Hinges

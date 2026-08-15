@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import IntEnum
 from typing import Any
+
+
+REQUIREMENT_STATUSES = frozenset({
+    "unverified",
+    "cad-checked",
+    "fdm-plausible",
+    "physically-tested",
+    "function-confirmed",
+})
+PROTOTYPE_STAGES = frozenset({"concept", "small-fit-test", "integrated-prototype", "final"})
+READINESS_LEVELS = frozenset({"concept-ready", "print-ready", "function-confirmed"})
 
 
 class Severity(IntEnum):
@@ -340,6 +352,7 @@ class ReferenceComponent:
     rotation_deg: tuple[float, float, float] = (0.0, 0.0, 0.0)
     nominal_size_mm: tuple[float, float, float] | None = None
     notes: list[str] = field(default_factory=list)
+    source_id: str | None = None
 
     def validate(self) -> list[Finding]:
         findings: list[Finding] = []
@@ -397,6 +410,7 @@ class ReferenceComponent:
             "rotation_deg": list(self.rotation_deg),
             "nominal_size_mm": list(self.nominal_size_mm) if self.nominal_size_mm else None,
             "notes": self.notes,
+            "source_id": self.source_id,
         }
 
 
@@ -536,6 +550,38 @@ class FunctionalRequirement:
     verification_method: str = ""
     evidence: tuple[str, ...] = ()
 
+    def validate(self) -> list[Finding]:
+        findings: list[Finding] = []
+        if not self.requirement_id.strip() or not self.statement.strip():
+            findings.append(
+                Finding(
+                    "requirement.missing-identity",
+                    Severity.BLOCKING,
+                    "A functional requirement needs both an identifier and a statement.",
+                )
+            )
+        if self.status not in REQUIREMENT_STATUSES:
+            findings.append(
+                Finding(
+                    "requirement.invalid-status",
+                    Severity.BLOCKING,
+                    f"Requirement {self.requirement_id!r} uses invalid status {self.status!r}.",
+                    recommendation=f"Use one of: {', '.join(sorted(REQUIREMENT_STATUSES))}.",
+                )
+            )
+        if self.status in {"physically-tested", "function-confirmed"} and (
+            not self.verification_method.strip() or not any(item.strip() for item in self.evidence)
+        ):
+            findings.append(
+                Finding(
+                    "requirement.physical-claim-missing-evidence",
+                    Severity.BLOCKING,
+                    f"Requirement {self.requirement_id!r} claims physical evidence without a verification method and result.",
+                    recommendation="Record the representative physical test method and its observed evidence, or lower the status.",
+                )
+            )
+        return findings
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "requirement_id": self.requirement_id,
@@ -563,6 +609,70 @@ class DesignDecision:
         }
 
 
+@dataclass(frozen=True)
+class SourceRecord:
+    """Provenance for one fit-controlling drawing, model, or document."""
+
+    source_id: str
+    url: str
+    product_revision: str = ""
+    retrieved_on: str = ""
+    license: str = ""
+    verified_features: tuple[str, ...] = ()
+    notes: str = ""
+
+    def validate(self) -> list[Finding]:
+        findings: list[Finding] = []
+        if not self.source_id.strip():
+            findings.append(
+                Finding(
+                    "source.missing-id",
+                    Severity.BLOCKING,
+                    "A provenance record has no source identifier.",
+                )
+            )
+        if not self.url.strip() or "://" not in self.url:
+            findings.append(
+                Finding(
+                    "source.invalid-url",
+                    Severity.BLOCKING,
+                    f"Source {self.source_id!r} has no absolute source URL.",
+                )
+            )
+        if self.retrieved_on:
+            try:
+                date.fromisoformat(self.retrieved_on)
+            except ValueError:
+                findings.append(
+                    Finding(
+                        "source.invalid-retrieval-date",
+                        Severity.BLOCKING,
+                        f"Source {self.source_id!r} has an invalid retrieval date.",
+                        recommendation="Use an ISO date such as 2026-08-15 or leave it blank.",
+                    )
+                )
+        if any(not isinstance(item, str) or not item.strip() for item in self.verified_features):
+            findings.append(
+                Finding(
+                    "source.invalid-verified-feature",
+                    Severity.BLOCKING,
+                    f"Source {self.source_id!r} contains an empty or malformed verified feature.",
+                )
+            )
+        return findings
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source_id": self.source_id,
+            "url": self.url,
+            "product_revision": self.product_revision,
+            "retrieved_on": self.retrieved_on,
+            "license": self.license,
+            "verified_features": list(self.verified_features),
+            "notes": self.notes,
+        }
+
+
 @dataclass
 class DesignRecord:
     """Durable design brief stored with the editable Python model."""
@@ -577,6 +687,8 @@ class DesignRecord:
     decisions: list[DesignDecision] = field(default_factory=list)
     prototype_stage: str = "concept"
     test_plan: list[str] = field(default_factory=list)
+    readiness: str = "concept-ready"
+    sources: list[SourceRecord] = field(default_factory=list)
 
     def validate(self) -> list[Finding]:
         findings: list[Finding] = []
@@ -607,6 +719,38 @@ class DesignRecord:
                     f"Functional requirement identifiers are duplicated: {duplicates}.",
                 )
             )
+        for requirement in self.requirements:
+            findings.extend(requirement.validate())
+        if self.prototype_stage not in PROTOTYPE_STAGES:
+            findings.append(
+                Finding(
+                    "design-record.invalid-prototype-stage",
+                    Severity.BLOCKING,
+                    f"Prototype stage {self.prototype_stage!r} is invalid.",
+                    recommendation=f"Use one of: {', '.join(sorted(PROTOTYPE_STAGES))}.",
+                )
+            )
+        if self.readiness not in READINESS_LEVELS:
+            findings.append(
+                Finding(
+                    "design-record.invalid-readiness",
+                    Severity.BLOCKING,
+                    f"Readiness claim {self.readiness!r} is invalid.",
+                    recommendation=f"Use one of: {', '.join(sorted(READINESS_LEVELS))}.",
+                )
+            )
+        source_ids = [source.source_id for source in self.sources]
+        duplicate_sources = sorted({item for item in source_ids if source_ids.count(item) > 1})
+        if duplicate_sources:
+            findings.append(
+                Finding(
+                    "source.duplicate-id",
+                    Severity.BLOCKING,
+                    f"Source identifiers are duplicated: {duplicate_sources}.",
+                )
+            )
+        for source in self.sources:
+            findings.extend(source.validate())
         for index, decision in enumerate(self.decisions):
             if not decision.decision.strip() or not decision.reason.strip():
                 findings.append(
@@ -629,7 +773,9 @@ class DesignRecord:
             "additional_hardware": self.additional_hardware,
             "decisions": [decision.as_dict() for decision in self.decisions],
             "prototype_stage": self.prototype_stage,
+            "readiness": self.readiness,
             "test_plan": self.test_plan,
+            "sources": [source.as_dict() for source in self.sources],
         }
 
 
@@ -703,25 +849,42 @@ class DesignBundle:
         else:
             findings.extend(self.design_record.validate())
         if len(self.parts) > 1:
-            expected_pairs = {
-                tuple(sorted((interface.part_a, interface.part_b)))
-                for interface in self.assembly.interfaces
-            }
-            for check_type in ("final-state-interference", "insertion-path"):
-                checked_pairs = {
-                    tuple(sorted((check.part_a, check.part_b)))
+            for interface in self.assembly.interfaces:
+                pair = tuple(sorted((interface.part_a, interface.part_b)))
+                pair_checks = [
+                    check
                     for check in self.assembly_checks
-                    if check.check_type == check_type
-                }
-                missing = sorted(expected_pairs - checked_pairs)
-                if missing:
+                    if tuple(sorted((check.part_a, check.part_b))) == pair
+                ]
+                if not any(check.check_type == "final-state-interference" for check in pair_checks):
                     findings.append(
                         Finding(
                             "assembly.missing-geometry-check",
                             Severity.BLOCKING,
-                            f"Multipart assembly is missing {check_type} checks for: {missing}.",
-                            evidence={"check_type": check_type, "missing_pairs": missing},
-                            recommendation="Check the final assembled overlap and the complete insertion path with the actual part geometry.",
+                            f"Interface {interface.interface_id!r} is missing a final-state interference check.",
+                            evidence={"check_type": "final-state-interference", "pair": pair},
+                            recommendation="Check final assembled overlap with the actual part geometry.",
+                        )
+                    )
+                joint = interface.joint_type.lower()
+                if "hinge" in joint or "rotary" in joint:
+                    accepted_motion = {"rotational-motion-path", "sampled-motion-path"}
+                elif "bayonet" in joint or "twist" in joint:
+                    accepted_motion = {"sampled-motion-path"}
+                else:
+                    accepted_motion = {"insertion-path", "sampled-motion-path"}
+                if not any(check.check_type in accepted_motion for check in pair_checks):
+                    findings.append(
+                        Finding(
+                            "assembly.missing-motion-check",
+                            Severity.BLOCKING,
+                            f"Interface {interface.interface_id!r} lacks an applicable sampled motion check.",
+                            evidence={
+                                "joint_type": interface.joint_type,
+                                "accepted_check_types": sorted(accepted_motion),
+                                "pair": pair,
+                            },
+                            recommendation="Use linear insertion only for straight translation; use rotational or explicit sampled poses for other motion.",
                         )
                     )
         known_parts = set(part_names)
@@ -777,10 +940,93 @@ class DesignBundle:
                 findings.extend(part.print_plan.validate())
         for component in self.reference_components:
             findings.extend(component.validate())
+            if component.source_id is not None:
+                known_sources = {
+                    source.source_id
+                    for source in (self.design_record.sources if self.design_record else [])
+                }
+                if component.source_id not in known_sources:
+                    findings.append(
+                        Finding(
+                            "reference.unknown-source",
+                            Severity.BLOCKING,
+                            f"Reference component {component.name!r} names unknown source {component.source_id!r}.",
+                            recommendation="Add the SourceRecord to DesignRecord.sources or remove the invalid link.",
+                        )
+                    )
+        if self.design_record is not None:
+            record_findings = self.design_record.validate()
+            concept_ready = not any(
+                finding.severity >= Severity.BLOCKING for finding in record_findings
+            )
+            requirement_statuses = [item.status for item in self.design_record.requirements]
+            blockers_before_readiness = any(
+                finding.severity >= Severity.BLOCKING for finding in findings
+            )
+            print_ready = (
+                concept_ready
+                and not blockers_before_readiness
+                and bool(requirement_statuses)
+                and "unverified" not in requirement_statuses
+            )
+            function_confirmed = (
+                print_ready
+                and bool(requirement_statuses)
+                and all(
+                    status in {"physically-tested", "function-confirmed"}
+                    for status in requirement_statuses
+                )
+                and "function-confirmed" in requirement_statuses
+            )
+            claimed = self.design_record.readiness
+            supported = {
+                "concept-ready": concept_ready,
+                "print-ready": print_ready,
+                "function-confirmed": function_confirmed,
+            }.get(claimed, False)
+            if not supported:
+                findings.append(
+                    Finding(
+                        "readiness.unsupported-claim",
+                        Severity.BLOCKING,
+                        f"The design claims {claimed!r} without the required evidence.",
+                        evidence={
+                            "concept_ready": concept_ready,
+                            "print_ready": print_ready,
+                            "function_confirmed": function_confirmed,
+                        },
+                        recommendation="Lower the readiness claim or resolve the findings and evidence gaps that control it.",
+                    )
+                )
         return findings
 
     def as_manifest(self) -> dict[str, Any]:
         findings = self.validate_metadata()
+        record = self.design_record
+        record_blocked = record is None or any(
+            finding.severity >= Severity.BLOCKING for finding in record.validate()
+        )
+        requirement_statuses = [item.status for item in record.requirements] if record else []
+        non_readiness_blocked = any(
+            finding.severity >= Severity.BLOCKING
+            and finding.code != "readiness.unsupported-claim"
+            for finding in findings
+        )
+        concept_ready = not record_blocked
+        print_ready = (
+            concept_ready
+            and not non_readiness_blocked
+            and bool(requirement_statuses)
+            and "unverified" not in requirement_statuses
+        )
+        function_confirmed = (
+            print_ready
+            and all(
+                status in {"physically-tested", "function-confirmed"}
+                for status in requirement_statuses
+            )
+            and "function-confirmed" in requirement_statuses
+        )
         return {
             "schema_version": 2,
             "name": self.name,
@@ -811,6 +1057,12 @@ class DesignBundle:
             "assembly": self.assembly.as_dict(),
             "assembly_checks": [check.as_dict() for check in self.assembly_checks],
             "design_record": self.design_record.as_dict() if self.design_record else None,
+            "readiness": {
+                "claimed": self.design_record.readiness if self.design_record else None,
+                "concept_ready": concept_ready,
+                "print_ready": print_ready,
+                "function_confirmed": function_confirmed,
+            },
             "assumptions": self.assumptions,
             "bom": self.bom,
             "assembly_instructions": self.assembly_instructions,

@@ -18,6 +18,7 @@ from functional_fdm import (
     PrintPlan,
     ReferenceComponent,
     ReviewAnnotation,
+    SourceRecord,
 )
 from functional_fdm.primitives import enclosure_shell
 
@@ -79,6 +80,15 @@ def build() -> DesignBundle:
         ],
         prototype_stage="concept",
         test_plan=["Use a small fit test if the rendered interface leaves a material uncertainty."],
+        sources=[
+            SourceRecord(
+                source_id="project-handoff",
+                url="file://MEASUREMENTS.md",
+                product_revision="Example dimensions; replace with the exact hardware revision.",
+                license="project-local",
+                verified_features=("internal envelope",),
+            )
+        ],
     )
     return DesignBundle(
         name="functional-cad-example",
@@ -92,6 +102,7 @@ def build() -> DesignBundle:
                 position_mm=(0.0, 0.0, 1.8),
                 nominal_size_mm=(25.0, 40.0, 10.0),
                 notes=["Nominal envelope; replace with a physical measurement."],
+                source_id="project-handoff",
             )
         ],
         assembly=graph,

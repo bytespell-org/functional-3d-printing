@@ -21,6 +21,10 @@ type SelectedComment = ReviewComment & {
 }
 
 export function App() {
+  const reviewToken = new URLSearchParams(window.location.search).get("token") || ""
+  const mutationHeaders: Record<string, string> = reviewToken
+    ? { Authorization: `Bearer ${reviewToken}` }
+    : {}
   const [manifest, setManifest] = useState<PreviewManifest | null>(null)
   const [progress, setProgress] = useState<DesignProgress | null>(null)
   const [error, setError] = useState("")
@@ -71,8 +75,10 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!manifest) return
-    const progressUrl = manifest.progress_url || "../progress.json"
+    if (!manifest?.progress_url) {
+      return
+    }
+    const progressUrl = manifest.progress_url
     let stopped = false
     let timer = 0
     const refresh = () => {
@@ -125,7 +131,7 @@ export function App() {
     try {
       const response = await fetch("/api/review-comments", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...mutationHeaders },
         body: JSON.stringify({
           part: commentAnchor.part,
           position_mm: commentAnchor.position_mm,
@@ -150,7 +156,7 @@ export function App() {
     try {
       const response = await fetch(
         `/api/review-comments/${encodeURIComponent(id)}`,
-        { method: "DELETE" }
+        { method: "DELETE", headers: mutationHeaders }
       )
       const value = (await response.json()) as { ok: boolean; error?: string }
       if (!response.ok || !value.ok)
@@ -179,7 +185,8 @@ export function App() {
       </div>
     )
 
-  const comments = progress?.comments || []
+  const collaborationEnabled = Boolean(manifest.progress_url)
+  const comments = collaborationEnabled ? progress?.comments || [] : []
   const composerWidth = commentAnchor
     ? Math.min(320, commentAnchor.viewport_size_px[0] - 16)
     : 320
@@ -233,7 +240,7 @@ export function App() {
               onSelectComment={setSelectedComment}
             />
 
-            <div className="absolute top-2 right-2 z-30 flex gap-1 lg:right-[21rem]">
+            {collaborationEnabled && <div className="absolute top-2 right-2 z-30 flex gap-1 lg:right-[21rem]">
               <Button
                 size="sm"
                 className="size-9 border border-sky-300/50 bg-sky-500 p-0 text-sky-950 shadow-lg hover:bg-sky-400"
@@ -258,7 +265,7 @@ export function App() {
               >
                 Progress
               </Button>
-            </div>
+            </div>}
 
             {commentMode && (
               <div className="pointer-events-none absolute top-13 left-2 z-30 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-lg lg:top-12">
@@ -367,7 +374,7 @@ export function App() {
               </div>
             )}
 
-            {panelOpen && (
+            {collaborationEnabled && panelOpen && (
               <button
                 aria-label="Close progress"
                 className="absolute inset-0 z-30 bg-black/45 lg:hidden"
@@ -375,7 +382,7 @@ export function App() {
               />
             )}
 
-            <aside
+            {collaborationEnabled && <aside
               aria-label="Progress"
               className={`${
                 panelOpen ? "flex" : "hidden"
@@ -423,7 +430,7 @@ export function App() {
                   {error}
                 </div>
               )}
-            </aside>
+            </aside>}
           </section>
         </main>
       </div>

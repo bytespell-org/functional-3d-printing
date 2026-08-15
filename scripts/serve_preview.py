@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
-"""Serve a CAD workbench durably and report LAN-reachable review URLs."""
+"""Serve an optional CAD workbench with token-protected comment mutations."""
 
 from __future__ import annotations
 
 import argparse
 import functools
+import hmac
 import http.server
 import json
 import math
 import os
 import socket
+import secrets
 import subprocess
 import sys
 import time
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 import urllib.request
 import webbrowser
 from pathlib import Path
 
 
 class PreviewHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args: object, progress_path: Path, manifest_path: Path, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        progress_path: Path,
+        manifest_path: Path,
+        mutation_token: str,
+        **kwargs: object,
+    ) -> None:
         self.progress_path = progress_path
         self.manifest_path = manifest_path
+        self.mutation_token = mutation_token
         super().__init__(*args, **kwargs)
 
     def send_json(self, status: int, value: object) -> None:
@@ -39,6 +49,8 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         if self.path.partition("?")[0] != "/api/review-comments":
             self.send_json(404, {"ok": False, "error": "Unknown endpoint."})
+            return
+        if not self.authorized_mutation():
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -95,6 +107,8 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
         if not path.startswith(prefix):
             self.send_json(404, {"ok": False, "error": "Unknown endpoint."})
             return
+        if not self.authorized_mutation():
+            return
         identifier = unquote(path[len(prefix):])
         if not identifier or "/" in identifier:
             self.send_json(400, {"ok": False, "error": "A comment id is required."})
@@ -116,6 +130,14 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
         except (ValueError, OSError) as error:
             self.send_json(400, {"ok": False, "error": str(error)})
 
+    def authorized_mutation(self) -> bool:
+        supplied = self.headers.get("Authorization", "")
+        expected = f"Bearer {self.mutation_token}"
+        if not self.mutation_token or not hmac.compare_digest(supplied, expected):
+            self.send_json(401, {"ok": False, "error": "A valid review session token is required."})
+            return False
+        return True
+
     def end_headers(self) -> None:
         # Review builds intentionally reuse stable model filenames. Disable
         # caching for every response so a normal refresh cannot mix a new
@@ -133,9 +155,11 @@ class PreviewServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def lan_hosts(bind_host: str) -> list[str]:
+def reachable_hosts(bind_host: str) -> list[str]:
+    if bind_host in {"127.0.0.1", "localhost", "::1"} or bind_host.startswith("127."):
+        return ["127.0.0.1"]
     if bind_host not in {"0.0.0.0", "::"}:
-        return [] if bind_host.startswith("127.") or bind_host == "localhost" else [bind_host]
+        return [bind_host]
     hosts: set[str] = set()
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -188,6 +212,8 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
         args.host,
         "--port",
         str(args.port),
+        "--token",
+        args.token,
         "--info-file",
         str(info_file),
         "--pid-file",
@@ -228,33 +254,39 @@ def daemonize(args: argparse.Namespace, preview: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("preview", type=Path)
-    parser.add_argument("--host", default="0.0.0.0", help="Bind address. The default exposes the workbench to the local network.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address. Defaults to loopback only.")
+    parser.add_argument("--lan", action="store_true", help="Explicitly bind to 0.0.0.0 for trusted-LAN review.")
     parser.add_argument("--port", type=int, default=0, help="TCP port. The default selects a free port.")
-    parser.add_argument("--open", action="store_true", help="Open the first LAN URL in a browser.")
+    parser.add_argument("--open", action="store_true", help="Open the tokenized review URL in a browser.")
     parser.add_argument("--daemon", action="store_true", help="Start a detached server that survives the calling agent process.")
     parser.add_argument("--info-file", type=Path, help="JSON file for server address and reachable URLs.")
     parser.add_argument("--pid-file", type=Path, help="File that records the detached server PID.")
     parser.add_argument("--log-file", type=Path, help="File for detached server logs.")
+    parser.add_argument("--token", default="", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.lan:
+        if args.host != "127.0.0.1":
+            raise ValueError("Use either --lan or --host for network exposure, not both.")
+        args.host = "0.0.0.0"
+    args.token = args.token or secrets.token_urlsafe(24)
     preview, root, url_path = resolve_preview(args.preview)
     if args.daemon:
         return daemonize(args, preview)
 
-    hosts = lan_hosts(args.host)
+    hosts = reachable_hosts(args.host)
     if not hosts:
-        raise ValueError(
-            "No LAN address is available. Use the environment's approved port-sharing method; "
-            "do not hand the user a localhost URL."
-        )
+        raise ValueError("No reachable address is available for this bind host.")
     handler = functools.partial(
         PreviewHandler,
         directory=str(root),
         progress_path=preview.parent / "progress.json",
         manifest_path=preview / "manifest.json",
+        mutation_token=args.token,
     )
     server = PreviewServer((args.host, args.port), handler)
     port = int(server.server_address[1])
-    urls = [f"http://{host}:{port}{url_path}" for host in hosts]
+    urls = [f"http://{host}:{port}{url_path}?token={quote(args.token)}" for host in hosts]
+    lan_mode = args.host not in {"127.0.0.1", "localhost", "::1"} and not args.host.startswith("127.")
     info = {
         "host": args.host,
         "port": port,
@@ -262,7 +294,10 @@ def main() -> int:
         "preview": str(preview),
         "progress": str(preview.parent / "progress.json"),
         "urls": urls,
+        "lan_mode": lan_mode,
     }
+    if lan_mode:
+        info["warning"] = "LAN review is active. Anyone with the tokenized URL can change comments."
     if args.info_file:
         write_json(args.info_file.resolve(), info)
     if args.pid_file:

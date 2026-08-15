@@ -14,8 +14,8 @@
 
 - Every named part exists in the graph.
 - Every retained component has one owner and a closed load path to the body in each constrained direction.
-- Every multipart interface has a numeric final-state interference check and an insertion-path check using the actual assembled geometry.
-- Every interface has an insertion direction.
+- Every multipart interface has a numeric final-state interference check and a motion check appropriate to how it actually assembles.
+- Straight interfaces record an insertion direction; rotary or compound interfaces record their sampled poses and axes.
 - Mating axes and surfaces align.
 - Clearance or interference matches the fit profile.
 - Moving parts have full travel.
@@ -29,9 +29,9 @@ Use `functional_fdm.check_fastener_stack`, `check_tool_access`, and `check_linea
 
 Read each `*.mesh-audit.json` after generation. The audit reports risky downward surfaces and near-horizontal candidate regions above the bed. A candidate is not automatically a valid bridge. Confirm two-ended anchoring in the geometry and record it in `PrintPlan`. Do not waive a candidate because a slicer produced no warning.
 
-Use `check_assembly_interference` on every mating part pair in its final assembled coordinates. Use `check_assembly_insertion_path` from a clear approach position to the final state. Add both results to `DesignBundle.assembly_checks`. A valid B-rep and correct nominal diameters do not prove that two parts can occupy the intended assembled state.
+Use `check_assembly_interference` on every mating part pair in its final assembled coordinates. `check_assembly_insertion_path` samples only straight translation from a clear approach to the modeled final state; it does not prove hinge rotation, bayonet movement, curved insertion, or compound motion. Use `check_rotational_motion_path` for a simple fixed-axis rotation and `check_sampled_motion_path` for explicit caller-supplied poses. These are deterministic collision samples, not motion planning; add samples where clearance changes rapidly and report sample count, step size when known, maximum overlap, and its pose. Add the applicable results to `DesignBundle.assembly_checks`.
 
-For every plug, cable, driver, fastener, or service keep-out, call `check_access_envelope` with the full set of printed parts that the path could cross. Pass the required part names separately so a missing geometry entry becomes a blocking finding. Do not replace this matrix with a few manually selected pair checks: clearing a USB envelope against the body and carrier says nothing about an omitted retainer.
+For every plug, cable, driver, fastener, or service keep-out, call `check_access_envelope` with the full set of printed parts that the path could cross. When the envelope is a scene object, make `envelope_name` exactly match its `ReferenceComponent.name` so metadata validation can resolve it. Pass the required part names separately so a missing geometry entry becomes a blocking finding. Do not replace this matrix with a few manually selected pair checks: clearing a USB envelope against the body and carrier says nothing about an omitted retainer.
 
 ## Manufacturability
 
@@ -47,22 +47,30 @@ For every plug, cable, driver, fastener, or service keep-out, call `check_access
 
 ## Visual inspection
 
-Generate isometric, front, back, left, right, top, and bottom images. Generate assembled and exploded views for multipart work. Open the interactive viewer.
+Generate only the views needed to inspect the risks present; include assembled and exploded views for multipart work. Inspect static images or the interactive viewer when collaboration benefits from it.
 
 Inspect the result. Do not treat render generation as inspection. Check missing cutouts, disconnected bodies, reversed parts, wrong axes, inaccessible screws, blocked ports, impossible assembly, and poor proportions.
 
 ## Interactive preview handoff
 
-Generate the complete `preview/` folder for every design review. Start the bundled static server and verify:
+Generate the complete `preview/` folder as a portable artifact. Start the bundled server only when interactive review materially helps and the environment can expose a reachable URL safely. When serving, verify:
 
 - `index.html` returns HTTP 200;
 - `manifest.json` returns HTTP 200;
 - every model URL in the manifest returns HTTP 200 and matches the generated digest;
 - all intended parts appear in the viewer.
 
-Give the user a clickable URL that is reachable from the user's browser. Use the current environment's supported port-sharing or preview mechanism. Do not give a remote user a loopback URL. Do not assume that a local path is clickable or interactive.
+The server defaults to loopback. Use explicit `--lan` or an explicit non-loopback `--host` only on a trusted network, and share the tokenized URL it prints. Do not expose the review merely to satisfy a ritual. Static model access remains read-only; comment creation and deletion require the session token.
 
-When the environment cannot expose a server, preserve the complete preview folder as one artifact and say that interactive delivery is unavailable. Show static images as the fallback. Never omit the interactive viewer without explanation.
+When a server is unnecessary or unsafe, preserve the preview folder and show static images. State that interactive review was not started only when that distinction matters to the handoff.
+
+## Readiness claims
+
+- `concept-ready`: architecture and evidence boundaries are visible; open risks may remain explicit.
+- `print-ready`: no applicable blocking geometry, assembly, fit, motion, or print-plan findings remain, and critical unknown fits are characterized or isolated in a specific test.
+- `function-confirmed`: representative physical testing demonstrates the intended use.
+
+An unsupported readiness claim is blocking. Unresolved physical uncertainty does not prevent generating and reviewing concept CAD.
 
 ## Functional evidence
 

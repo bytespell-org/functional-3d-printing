@@ -135,6 +135,51 @@
         "driver access checked after neighboring hardware is installed",
         "internal supports clipped to the approved exterior"
       ]
+    },
+    {
+      "id": "activation-simple-spacer",
+      "prompt": "Make a 3 mm thick spacer for a measured M4 bolt.",
+      "expected_activation": true,
+      "expected_level": "simple-part",
+      "criteria": [
+        "uses the lightweight one-part workflow",
+        "does not require reference hardware when dimensions are supplied",
+        "does not start a preview server or sidecar by default"
+      ]
+    },
+    {
+      "id": "activation-serviceable-enclosure",
+      "prompt": "Make a serviceable case for my exact ESP32 board with USB cable access and screws.",
+      "expected_activation": true,
+      "expected_level": "fit-or-assembly",
+      "criteria": [
+        "identifies the exact board and researches primary sources",
+        "models the board as non-printable reference hardware",
+        "checks assembly, screw, driver, and cable paths"
+      ]
+    },
+    {
+      "id": "activation-decorative-figurine",
+      "prompt": "Sculpt a decorative dragon figurine for my shelf.",
+      "expected_activation": false,
+      "criteria": ["does not activate this functional mechanical CAD skill"]
+    },
+    {
+      "id": "activation-printer-upload",
+      "prompt": "Slice this STL and upload it to my printer queue.",
+      "expected_activation": false,
+      "criteria": ["keeps slicing, uploads, queues, and printer control outside scope"]
+    },
+    {
+      "id": "motion-hinge-bayonet",
+      "prompt": "Validate a hinged lid and a twist-lock bayonet closure.",
+      "expected_activation": true,
+      "expected_level": "fit-or-assembly",
+      "criteria": [
+        "does not treat straight insertion as hinge or bayonet proof",
+        "uses rotational or explicit sampled poses",
+        "bounds the claim to the poses sampled"
+      ]
     }
   ]
 }

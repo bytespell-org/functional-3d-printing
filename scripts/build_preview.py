@@ -73,7 +73,7 @@ def main() -> int:
     parser.add_argument("--reference", action="append", default=[], type=parse_reference)
     parser.add_argument("--title", default="Functional CAD Preview")
     parser.add_argument("--annotation", action="append", default=[], type=parse_json_object)
-    parser.add_argument("--progress-url", default="../progress.json")
+    parser.add_argument("--progress-url", default="", help="Optional progress sidecar URL that enables collaborative review controls.")
     args = parser.parse_args()
 
     asset_root = Path(__file__).resolve().parents[1] / "assets" / "preview"
@@ -88,7 +88,7 @@ def main() -> int:
         "parts": [],
         "references": [],
         "annotations": args.annotation,
-        "progress_url": args.progress_url,
+        "progress_url": args.progress_url or None,
     }
     used_names: set[str] = set()
     for index, (name, path, color) in enumerate(args.part):
@@ -128,6 +128,7 @@ def main() -> int:
                 "rotation_deg": reference["rotation_deg"],
                 "nominal_size_mm": reference.get("nominal_size_mm"),
                 "notes": reference.get("notes", []),
+                "source_id": reference.get("source_id"),
                 "sha256": digest,
             }
         )

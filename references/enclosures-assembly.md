@@ -14,7 +14,7 @@ Before surface detail, write the reversible assembly sequence. For each item, st
 - lid architecture and service cycle;
 - tool access and assembly order.
 
-Use an `AssemblyGraph`. Each interface records two parts, joint type, nominal geometry, fit, insertion direction, removability, cycles, and hardware.
+Use an `AssemblyGraph`. Each interface records two parts, joint type, nominal geometry, fit, removability, cycles, hardware, and a meaningful motion description. A straight interface uses its insertion direction; hinges, bayonets, and compound motion need rotational or explicit sampled poses rather than a linear-insertion claim.
 
 Assign one printed owner to every retained component. Trace forward, rearward, torque, and service loads from the component to the body. Retention needs opposing constraints: a front lip alone does not prevent rearward motion, and a plate screwed only to the component can leave with it. Model the actual bearing faces and gaps. Do not make a removable closure own the display unless that coupling is intentional and safe during service.
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Functional 3D Printing"
-  short_description: "Design assemblable, observable mechanical parts"
-  default_prompt: "Use $functional-3d-printing to research the exact hardware, work backward from assembly and service access, and share each CAD revision through one live review URL."
+  short_description: "Design testable functional FDM parts"
+  default_prompt: "Use $functional-3d-printing to create the smallest testable CAD solution, work backward from applicable fit, load, assembly, and print risks, and return editable source with clearly labeled evidence."

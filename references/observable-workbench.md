@@ -1,10 +1,10 @@
-# Observable workbench
+# Optional observable workbench
 
-The workbench is a small shared review surface. Its panel shows only a short summary and progress items; point-anchored comments live directly on the model. Printable parts render as solid objects. Non-printable hardware references render as translucent context with distinct visibility chips, so the enclosure and its contents can be positioned and reviewed together without implying that the hardware belongs in the print job. `DesignRecord` remains the source for dimensions, assumptions, questions, and decisions; `record_iteration.py` JSONL remains the source for physical observations and learnings.
+Use the workbench only when collaborative visual review or repeated revisions materially help. A simple part does not need a sidecar or running server. Static images and the generated `preview/` folder are sufficient otherwise. Printable parts render as solids; non-printable references render as translucent context without entering printable outputs. `DesignRecord` remains canonical for design facts, and iteration JSONL remains canonical for physical observations.
 
 ## Sidecar
 
-Create the sidecar before sharing a review:
+When collaboration is justified, create the sidecar before sharing:
 
 ```bash
 python scripts/update_progress.py init /chosen/output/progress.json --title "ESP32 enclosure"
@@ -55,10 +55,16 @@ Start the server once after the first useful concept. For each iteration, update
 
 The workbench source lives in `workbench/`; rebuild it with `npm run build` and replace `assets/preview/` with `workbench/dist/`.
 
-Start the generated viewer with the durable server:
+Start a loopback-only durable viewer:
 
 ```bash
 python scripts/serve_preview.py /chosen/output/preview --daemon
 ```
 
-The launcher binds to `0.0.0.0`, selects a free port, starts a detached process, waits for HTTP 200, and reports LAN URLs. It writes `.preview-server.json`, `.preview-server.pid`, and `.preview-server.log` beside the output. Use it rather than a generic static server because it owns the same-origin endpoints for adding and deleting model comments.
+For trusted-LAN collaboration, opt in explicitly:
+
+```bash
+python scripts/serve_preview.py /chosen/output/preview --lan --daemon
+```
+
+The launcher selects a free port, starts a detached process, waits for HTTP 200, and prints a tokenized review URL. LAN mode prints a warning: anyone with that URL can add or delete comments. Static assets remain readable without authentication; comment mutations require the generated session token. The token is runtime-only and is never written into generated portable preview assets. The launcher writes `.preview-server.json`, `.preview-server.pid`, and `.preview-server.log` beside the output.

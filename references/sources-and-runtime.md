@@ -4,7 +4,7 @@
 
 For a named board or component, search primary sources before asking the user to reproduce information that is already published. Prefer the exact manufacturer's CAD, mechanical drawing, product documentation, and source repository. Use authorized distributor documents only when they match the exact manufacturer part number. Treat community models as provisional unless primary dimensions independently verify the fit-controlling geometry.
 
-Keep a short provenance record in `DesignRecord`: source URL, product and revision match, retrieval date, license or redistribution constraint, coordinate transform, and the dimensions checked against the source. Do not redistribute a downloaded model when its license is unclear; keep a local reference and provide the source link instead. A detailed STEP file is not automatically correct—verify outline, mounting features, connectors, and maximum populated heights before using it for clearance.
+Create one `SourceRecord` per drawing, model, or document with a stable `source_id`, absolute URL, product/revision, retrieval date, license or redistribution constraint, and the features actually checked. Link each sourced `ReferenceComponent` through `source_id`. Its `position_mm` and `rotation_deg` already own the scene transform; do not duplicate transforms in provenance. Do not redistribute a downloaded model when its license is unclear; keep a local reference and provide the source link instead. A detailed STEP file is not automatically correct—verify outline, mounting features, connectors, and maximum populated heights before using it for clearance.
 
 ## Runtime
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run semantic and optional CadQuery benchmarks for functional FDM primitives."""
+"""Run library regressions and validate the separate manual agent-eval catalog."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from functional_fdm import (  # noqa: E402
     check_assembly_interference,
     check_fastener_stack,
     check_linear_travel,
+    check_rotational_motion_path,
     check_tool_access,
 )
 from functional_fdm.primitives import (  # noqa: E402
@@ -50,6 +51,25 @@ def main() -> int:
     args = parser.parse_args()
     profile = FitProfile(printer="benchmark", material="PETG", characterized=False)
     results: list[dict[str, object]] = []
+
+    eval_catalog_path = SKILL_ROOT / "benchmarks" / "eval-prompts.json"
+    eval_catalog = json.loads(eval_catalog_path.read_text(encoding="utf-8"))
+    eval_cases = eval_catalog.get("cases", [])
+    eval_ids = [item.get("id") for item in eval_cases if isinstance(item, dict)]
+    catalog_ok = (
+        eval_catalog.get("schema_version") == 1
+        and len(eval_ids) == len(eval_cases)
+        and all(isinstance(identifier, str) and identifier for identifier in eval_ids)
+        and len(set(eval_ids)) == len(eval_ids)
+        and all(
+            isinstance(item.get("prompt"), str)
+            and item["prompt"].strip()
+            and isinstance(item.get("criteria"), list)
+            and item["criteria"]
+            for item in eval_cases
+            if isinstance(item, dict)
+        )
+    )
 
     def blocked(feature: object) -> bool:
         findings = feature.findings
@@ -187,16 +207,60 @@ def main() -> int:
             insertion_direction=(-1, 0, 0),
             approach_distance_mm=8,
         )
-        collision_ok = not collision.passed and final_clear.passed and path_clear.passed
+        path_blocker = cq.Workplane("XY").box(3, 10, 10).translate((14, 0, 0))
+        path_blocked = check_assembly_insertion_path(
+            fixed_part="path-blocker",
+            fixed_geometry=path_blocker,
+            moving_part="moving",
+            moving_geometry=clear,
+            insertion_direction=(-1, 0, 0),
+            approach_distance_mm=8,
+        )
+        collision_ok = not collision.passed and final_clear.passed and path_clear.passed and not path_blocked.passed
+
+        rotating_arm = cq.Workplane("XY").box(12, 2, 2).translate((6, 0, 0))
+        clear_rotating_fixed = cq.Workplane("XY").box(2, 2, 2).translate((-5, -5, 0))
+        blocked_rotating_fixed = cq.Workplane("XY").box(3, 3, 3).translate((0, 6, 0))
+        rotational_clear = check_rotational_motion_path(
+            fixed_part="clear-stop",
+            fixed_geometry=clear_rotating_fixed,
+            moving_part="arm",
+            moving_geometry=rotating_arm,
+            axis=(0, 0, 1),
+            origin_mm=(0, 0, 0),
+            start_angle_deg=0,
+            end_angle_deg=90,
+            samples=18,
+        )
+        rotational_blocked = check_rotational_motion_path(
+            fixed_part="blocked-stop",
+            fixed_geometry=blocked_rotating_fixed,
+            moving_part="arm",
+            moving_geometry=rotating_arm,
+            axis=(0, 0, 1),
+            origin_mm=(0, 0, 0),
+            start_angle_deg=0,
+            end_angle_deg=90,
+            samples=18,
+        )
         collision_evidence = {
             "collision": collision.as_dict(),
             "final_clear": final_clear.as_dict(),
             "path_clear": path_clear.as_dict(),
+            "path_blocked": path_blocked.as_dict(),
         }
     else:
         collision_ok = True
         collision_evidence = "Geometry check skipped. Use --geometry in the CadQuery environment."
     case("assembly-interference", collision_ok, collision_evidence)
+    if args.geometry:
+        case(
+            "rotational-motion-path",
+            rotational_clear.passed and not rotational_blocked.passed,
+            {"clear": rotational_clear.as_dict(), "blocked": rotational_blocked.as_dict()},
+        )
+    else:
+        case("rotational-motion-path", True, "Geometry check skipped. Use --geometry in the CadQuery environment.")
 
     annular = annular_snap_pair(nominal_diameter_mm=50, bead_height_mm=0.5, bead_width_mm=1.2, wall_thickness_mm=1.8, profile=profile, split_ring=True)
     tongue = tongue_and_groove_pair(tongue_width_mm=2, tongue_height_mm=1.5, length_mm=20, profile=profile)
@@ -208,8 +272,19 @@ def main() -> int:
     case("joint-library", mechanisms_ok, {"annular": annular.as_dict(), "tongue": tongue.as_dict(), "hinge": hinge.as_dict(), "living_hinge_rejection": living.as_dict()})
 
     failures = [result for result in results if not result["ok"]]
-    print(json.dumps({"ok": not failures, "cases": results, "failures": failures}, indent=2))
-    return 0 if not failures else 1
+    print(json.dumps({
+        "ok": not failures and catalog_ok,
+        "regression_cases": results,
+        "failures": failures,
+        "agent_eval_catalog": {
+            "path": str(eval_catalog_path.relative_to(SKILL_ROOT)),
+            "valid": catalog_ok,
+            "case_count": len(eval_cases),
+            "executed": False,
+            "note": "Prompts are a manual/future agent-evaluation catalog; this runner does not execute agents.",
+        },
+    }, indent=2))
+    return 0 if not failures and catalog_ok else 1
 
 
 if __name__ == "__main__":

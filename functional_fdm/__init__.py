@@ -2,11 +2,14 @@
 
 from .materials import MaterialProfile, material_profile
 from .assembly_checks import (
+    MotionPose,
     check_access_envelope,
     check_assembly_insertion_path,
     check_assembly_interference,
     check_fastener_stack,
     check_linear_travel,
+    check_rotational_motion_path,
+    check_sampled_motion_path,
     check_tool_access,
 )
 from .model import (
@@ -26,6 +29,7 @@ from .model import (
     ReferenceComponent,
     ReviewAnnotation,
     Severity,
+    SourceRecord,
 )
 from .profile import FitProfile
 
@@ -47,12 +51,16 @@ __all__ = [
     "ReferenceComponent",
     "ReviewAnnotation",
     "MaterialProfile",
+    "MotionPose",
     "Severity",
+    "SourceRecord",
     "material_profile",
     "check_access_envelope",
     "check_assembly_insertion_path",
     "check_assembly_interference",
     "check_fastener_stack",
     "check_linear_travel",
+    "check_rotational_motion_path",
+    "check_sampled_motion_path",
     "check_tool_access",
 ]

@@ -150,6 +150,7 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
     if record:
         lines.extend(["## Functional design record", "", f"- Intent: {record['intent']}"])
         lines.append(f"- Prototype stage: {record['prototype_stage']}")
+        lines.append(f"- Readiness claim: {record.get('readiness', 'concept-ready')}")
         if record.get("known_dimensions_mm"):
             lines.append(f"- Known dimensions: {record['known_dimensions_mm']} mm")
         for assumption in record.get("assumptions", []):
@@ -167,6 +168,23 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
             )
             if requirement.get("verification_method"):
                 lines.append(f"  - Verification: {requirement['verification_method']}")
+            for evidence in requirement.get("evidence", []):
+                lines.append(f"  - Evidence: {evidence}")
+        sources = record.get("sources", [])
+        if sources:
+            lines.extend(["", "### Sources", ""])
+            for source in sources:
+                lines.append(f"- **{source['source_id']}**: {source['url']}")
+                if source.get("product_revision"):
+                    lines.append(f"  - Product/revision: {source['product_revision']}")
+                if source.get("retrieved_on"):
+                    lines.append(f"  - Retrieved: {source['retrieved_on']}")
+                if source.get("verified_features"):
+                    lines.append(f"  - Verified features: {source['verified_features']}")
+                if source.get("license"):
+                    lines.append(f"  - License: {source['license']}")
+                if source.get("notes"):
+                    lines.append(f"  - Notes: {source['notes']}")
         lines.extend(["", "### Design decisions", ""])
         decisions = record.get("decisions", [])
         if not decisions:
@@ -221,6 +239,8 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
             lines.append(f"- Rotation: {component['rotation_deg']} degrees")
             if component.get("nominal_size_mm"):
                 lines.append(f"- Nominal envelope: {component['nominal_size_mm']} mm")
+            if component.get("source_id"):
+                lines.append(f"- Source: {component['source_id']}")
             for note in component.get("notes", []):
                 lines.append(f"- {note}")
             lines.append("")
@@ -412,30 +432,14 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
                             else None
                         ),
                         "notes": component.notes,
+                        "source_id": component.source_id,
                     }
                 ),
             ]
         )
 
     progress_path = output / "progress.json"
-    if not progress_path.exists():
-        progress = subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).with_name("update_progress.py")),
-                "init",
-                str(progress_path),
-                "--title",
-                bundle.name,
-                "--design-id",
-                slugify(bundle.name),
-            ],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        if progress.returncode:
-            failures.append(f"Progress sidecar initialization failed: {progress.stderr.strip()}")
+    preview_progress = ["--progress-url", "../progress.json"] if progress_path.exists() else []
 
     if stl_paths:
         subprocess.run(
@@ -453,6 +457,7 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
                 *preview_parts,
                 *preview_references,
                 *preview_review,
+                *preview_progress,
             ],
             check=True,
         )

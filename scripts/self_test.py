@@ -30,6 +30,7 @@ from functional_fdm import (  # noqa: E402
     PrintPlan,
     ReferenceComponent,
     ReviewAnnotation,
+    SourceRecord,
     FunctionalRequirement,
     Severity,
     check_access_envelope,
@@ -275,7 +276,7 @@ def main() -> int:
             multipart_graph,
         )
         missing_checks = unchecked.validate_metadata()
-        if len([f for f in missing_checks if f.code == "assembly.missing-geometry-check"]) != 2:
+        if len([f for f in missing_checks if f.code in {"assembly.missing-geometry-check", "assembly.missing-motion-check"}]) != 2:
             raise RuntimeError("Multipart design without final-state and insertion-path checks was not blocked.")
 
         complete_checks = [
@@ -329,6 +330,81 @@ def main() -> int:
             raise RuntimeError("Design record was not included in the manifest.")
         if any(f.code.startswith("design-record.") for f in recorded.validate_metadata()):
             raise RuntimeError("A complete design record produced findings.")
+        if manifest["readiness"]["claimed"] != "concept-ready" or not manifest["readiness"]["concept_ready"]:
+            raise RuntimeError("Concept readiness was not exported consistently.")
+
+        invalid_record = DesignRecord(
+            intent="Invalid evidence claims.",
+            requirements=[
+                FunctionalRequirement("claim", "Works physically.", status="physically-tested"),
+                FunctionalRequirement("bad-status", "Uses a closed vocabulary.", status="done"),
+            ],
+            prototype_stage="prototype-ish",
+            readiness="function-confirmed",
+            sources=[
+                SourceRecord("board", "not-an-absolute-url", retrieved_on="yesterday"),
+                SourceRecord("board", "https://example.com/duplicate"),
+            ],
+        )
+        invalid_bundle = DesignBundle(
+            "invalid-record",
+            [DesignPart("base", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"base"}),
+            design_record=invalid_record,
+            reference_components=[ReferenceComponent("board", None, source_id="missing-source")],
+        )
+        invalid_codes = {finding.code for finding in invalid_bundle.validate_metadata()}
+        expected_invalid = {
+            "requirement.physical-claim-missing-evidence",
+            "requirement.invalid-status",
+            "design-record.invalid-prototype-stage",
+            "source.invalid-url",
+            "source.invalid-retrieval-date",
+            "source.duplicate-id",
+            "reference.unknown-source",
+            "readiness.unsupported-claim",
+        }
+        if not expected_invalid <= invalid_codes:
+            raise RuntimeError(f"Evidence/provenance validation missed: {sorted(expected_invalid - invalid_codes)}")
+
+        sourced_record = DesignRecord(
+            intent="Locate exact hardware.",
+            requirements=[FunctionalRequirement("located", "Hardware is located.", status="cad-checked", verification_method="CAD envelope")],
+            sources=[SourceRecord("board-drawing", "https://example.com/board.pdf", product_revision="V4", verified_features=("outline", "mounting holes"))],
+        )
+        sourced_bundle = DesignBundle(
+            "sourced",
+            [DesignPart("base", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"base"}),
+            design_record=sourced_record,
+            reference_components=[ReferenceComponent("board", None, source_id="board-drawing")],
+        )
+        if any(f.severity >= Severity.BLOCKING for f in sourced_bundle.validate_metadata()):
+            raise RuntimeError("Valid linked provenance produced a blocking finding.")
+        if sourced_bundle.as_manifest()["reference_components"][0]["source_id"] != "board-drawing":
+            raise RuntimeError("Reference provenance link was not exported.")
+
+        confirmed_record = DesignRecord(
+            intent="Confirm representative function.",
+            requirements=[FunctionalRequirement(
+                "holds-load",
+                "The part holds the representative load.",
+                status="function-confirmed",
+                verification_method="Representative load test for 24 hours",
+                evidence=("No deformation or release after 24 hours at the specified load.",),
+            )],
+            prototype_stage="final",
+            readiness="function-confirmed",
+        )
+        confirmed_bundle = DesignBundle(
+            "confirmed",
+            [DesignPart("part", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"part"}),
+            design_record=confirmed_record,
+        )
+        confirmed_manifest = confirmed_bundle.as_manifest()
+        if any(f.severity >= Severity.BLOCKING for f in confirmed_bundle.validate_metadata()) or not confirmed_manifest["readiness"]["function_confirmed"]:
+            raise RuntimeError("Representative physical evidence did not support function-confirmed readiness.")
 
         annotation = ReviewAnnotation(
             "usb-c-opening",
@@ -412,6 +488,8 @@ def main() -> int:
             }),
             "--annotation",
             json.dumps(annotation.as_dict()),
+            "--progress-url",
+            "../progress.json",
         ]
         run(preview_command, 0)
         for required in ("index.html", "manifest.json"):
@@ -438,6 +516,19 @@ def main() -> int:
             raise RuntimeError("Preview reference component transform is missing.")
         if not preview_reference["file"].startswith("models/ref-"):
             raise RuntimeError("Reference component was not isolated from printable part naming.")
+
+        static_preview = root / "static-preview"
+        run([
+            sys.executable,
+            str(scripts / "build_preview.py"),
+            "--output",
+            str(static_preview),
+            "--part",
+            f"test={stl}:#4f7cac",
+        ], 0)
+        static_manifest = json.loads((static_preview / "manifest.json").read_text(encoding="utf-8"))
+        if static_manifest["progress_url"] is not None:
+            raise RuntimeError("A static/simple preview enabled collaborative progress implicitly.")
 
         previous_revision = preview_manifest["revision"]
         previous_model = preview / preview_part["file"]
@@ -511,16 +602,23 @@ def main() -> int:
             raise RuntimeError("Comment contains retired attribution or status metadata.")
 
         class DeleteProbe(PreviewHandler):
-            def __init__(self, path: str, progress_path: Path):
+            def __init__(self, path: str, progress_path: Path, authorization: str = ""):
                 self.path = path
                 self.progress_path = progress_path
                 self.manifest_path = root / "preview" / "manifest.json"
+                self.mutation_token = "test-token"
+                self.headers = {"Authorization": authorization}
                 self.response: tuple[int, object] | None = None
 
             def send_json(self, status: int, value: object) -> None:
                 self.response = (status, value)
 
-        delete_probe = DeleteProbe("/api/review-comments/comment-usb-clearance", progress)
+        unauthenticated_delete = DeleteProbe("/api/review-comments/comment-usb-clearance", progress)
+        unauthenticated_delete.do_DELETE()
+        if unauthenticated_delete.response != (401, {"ok": False, "error": "A valid review session token is required."}):
+            raise RuntimeError("Preview DELETE accepted an unauthenticated mutation.")
+
+        delete_probe = DeleteProbe("/api/review-comments/comment-usb-clearance", progress, "Bearer test-token")
         delete_probe.do_DELETE()
         if delete_probe.response != (200, {"ok": True}):
             raise RuntimeError("Preview DELETE did not invoke comment removal.")
@@ -598,7 +696,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 34}, indent=2))
+    print(json.dumps({"ok": True, "tests": 42}, indent=2))
     return 0
 
 

@@ -1,5 +1,9 @@
 # Progressive functional design process
 
+## Proportional workflow
+
+Use the smallest workflow that matches the risk. A simple one-piece part needs the bundle, named part, design record, reviewed print plan, valid geometry, mesh inspection, and a one-part assembly graph; it does not automatically need references, assembly checks, a progress sidecar, comments, or a server. Escalate to fit/assembly records and checks only for mating parts, exact hardware, access paths, or mechanisms. Escalate again to the collaborative workbench only when visual iteration materially helps.
+
 ## Clarification policy
 
 Start from information already available in the request, attachments, drawings, listings, and editable source. Extract useful dimensions before asking questions. Keep all supplied dimensions in one simple measurement map. Do not split them into nominal, measured, estimated, or provisional classes.
@@ -10,7 +14,7 @@ Resolve the exact product, variant, and hardware revision before treating a fami
 2. authorized distributor documentation tied to the exact manufacturer part number;
 3. clearly identified community CAD only as a provisional visual reference that must be checked against primary dimensions.
 
-Record the source URL, part/revision match, retrieval date, license or redistribution constraint, and whether the source supplies exact geometry or only nominal dimensions. Check at least the outer profile, mounting features, connector positions, and populated heights against published dimensions before trusting downloaded CAD. Do not silently substitute a nearby development-board variant. If no adequate source exists, make a conservative reference envelope and ask only for the physical measurements that control the chosen architecture.
+Record sources with `SourceRecord` and link sourced hardware through `ReferenceComponent.source_id`; see `sources-and-runtime.md`. Check at least the outer profile, mounting features, connector positions, and populated heights against published dimensions before trusting downloaded CAD. Do not silently substitute a nearby development-board variant. If no adequate source exists, make a conservative reference envelope and ask only for the physical measurements that control the chosen architecture.
 
 Treat every supplied dimension as known. Use it until the user changes it. Before asking for any dimension, inspect the measurement map. If final fit needs a second measurement, cite the value already recorded and explain why confirmation matters. Never ask for the same value as if the user did not supply it.
 
@@ -100,3 +104,9 @@ When a fit or mechanism has real uncertainty, prepare the smallest useful test. 
 Ask before preparing the test only when it would exceed the user's scope or require new material, hardware, cost, or authority. Do not use “coupon” without immediately defining it as a small test print.
 
 After a physical test, record the observation, measurement when available, likely cause, smallest change, and next stage. Give assembly instructions that match the printed geometry.
+
+## Readiness and safety
+
+Use `concept-ready` when the architecture is visible and known facts, assumptions, questions, and risks are explicit. Use `print-ready` only when applicable geometry, assembly, fit, motion, and print-plan blockers are resolved or isolated in a specific test. Use `function-confirmed` only after representative physical testing. Block an unsupported readiness claim, not useful concept work.
+
+Pressure containment, mains electrical systems, vehicle-critical parts, lifting or overhead loads, medical use, restraints, and child-safety-critical mechanisms may receive concept CAD, but must not be called production-ready or function-confirmed without qualified engineering review and representative testing.

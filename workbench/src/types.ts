@@ -15,6 +15,7 @@ export type PreviewReference = {
   rotation_deg?: [number, number, number]
   nominal_size_mm?: [number, number, number] | null
   notes?: string[]
+  source_id?: string | null
 }
 
 export type ReviewAnnotation = {
