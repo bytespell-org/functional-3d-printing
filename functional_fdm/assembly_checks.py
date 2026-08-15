@@ -87,6 +87,96 @@ def check_assembly_interference(
     )
 
 
+def check_access_envelope(
+    *,
+    envelope_name: str,
+    envelope_geometry: Any,
+    part_geometries: dict[str, Any],
+    required_parts: list[str] | tuple[str, ...] | set[str],
+    allowed_interference_mm3: float = 0.01,
+    feature: str = "service-access-envelope",
+) -> list[AssemblyCheckResult]:
+    """Check one plug, cable, tool, or service envelope against every required part.
+
+    ``required_parts`` is intentionally separate from ``part_geometries`` so an
+    omitted retainer or cover becomes a blocking result instead of silently
+    shrinking the validation matrix.
+    """
+    if allowed_interference_mm3 < 0:
+        raise ValueError("Allowed interference must not be negative.")
+    names = tuple(dict.fromkeys(required_parts))
+    if not names:
+        raise ValueError("At least one required printed part must be named.")
+
+    results: list[AssemblyCheckResult] = []
+    for part_name in names:
+        check_name = f"{feature}:{part_name}"
+        findings: list[Finding] = []
+        if part_name not in part_geometries:
+            overlap = math.nan
+            findings.append(
+                Finding(
+                    "assembly.access-envelope-part-missing",
+                    Severity.BLOCKING,
+                    "A required printed part is missing from the access-envelope check.",
+                    check_name,
+                    {
+                        "envelope": envelope_name,
+                        "missing_part": part_name,
+                        "required_parts": list(names),
+                        "provided_parts": sorted(part_geometries),
+                    },
+                    "Add the missing printed-part geometry and rerun the complete access matrix.",
+                )
+            )
+        else:
+            try:
+                overlap = _intersection_volume_mm3(part_geometries[part_name], envelope_geometry)
+            except Exception as error:
+                overlap = math.nan
+                findings.append(
+                    Finding(
+                        "assembly.access-envelope-check-failed",
+                        Severity.BLOCKING,
+                        "The access envelope intersection could not be measured.",
+                        check_name,
+                        {"envelope": envelope_name, "part": part_name, "error": str(error)},
+                        "Repair the geometry or placement and rerun the complete access matrix.",
+                    )
+                )
+            else:
+                if overlap > allowed_interference_mm3:
+                    findings.append(
+                        Finding(
+                            "assembly.access-envelope-blocked",
+                            Severity.BLOCKING,
+                            f"The {envelope_name} envelope overlaps {part_name} by {overlap:.3f} mm^3.",
+                            check_name,
+                            {
+                                "envelope": envelope_name,
+                                "part": part_name,
+                                "overlap_mm3": overlap,
+                                "allowed_interference_mm3": allowed_interference_mm3,
+                            },
+                            "Open the full service path through this part or change the assembly architecture.",
+                        )
+                    )
+        results.append(
+            AssemblyCheckResult(
+                name=check_name,
+                part_a=part_name,
+                part_b=envelope_name,
+                check_type="access-envelope-clearance",
+                measurements={
+                    "overlap_mm3": overlap,
+                    "allowed_interference_mm3": allowed_interference_mm3,
+                },
+                findings=findings,
+            )
+        )
+    return results
+
+
 def check_assembly_insertion_path(
     *,
     fixed_part: str,

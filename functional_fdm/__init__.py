@@ -2,6 +2,7 @@
 
 from .materials import MaterialProfile, material_profile
 from .assembly_checks import (
+    check_access_envelope,
     check_assembly_insertion_path,
     check_assembly_interference,
     check_fastener_stack,
@@ -48,6 +49,7 @@ __all__ = [
     "MaterialProfile",
     "Severity",
     "material_profile",
+    "check_access_envelope",
     "check_assembly_insertion_path",
     "check_assembly_interference",
     "check_fastener_stack",

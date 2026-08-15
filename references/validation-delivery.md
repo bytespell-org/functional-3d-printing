@@ -13,6 +13,7 @@
 ## Assembly
 
 - Every named part exists in the graph.
+- Every retained component has one owner and a closed load path to the body in each constrained direction.
 - Every multipart interface has a numeric final-state interference check and an insertion-path check using the actual assembled geometry.
 - Every interface has an insertion direction.
 - Mating axes and surfaces align.
@@ -22,12 +23,15 @@
 - Screw heads, drivers, insert tools, and nut insertion paths are clear.
 - Magnet polarity and retention are explicit.
 - The assembly sequence remains possible after wires and hardware are installed.
+- Removal is checked independently; do not assume insertion is reversible after connectors, adhesive, or neighboring parts are present.
 
 Use `functional_fdm.check_fastener_stack`, `check_tool_access`, and `check_linear_travel` for numeric checks. Put their findings in the `DesignBundle`. Use `DesignPart.expected_size_mm` and `expected_volume_range_mm3` to make execution fail when exported geometry leaves its intended envelope.
 
 Read each `*.mesh-audit.json` after generation. The audit reports risky downward surfaces and near-horizontal candidate regions above the bed. A candidate is not automatically a valid bridge. Confirm two-ended anchoring in the geometry and record it in `PrintPlan`. Do not waive a candidate because a slicer produced no warning.
 
 Use `check_assembly_interference` on every mating part pair in its final assembled coordinates. Use `check_assembly_insertion_path` from a clear approach position to the final state. Add both results to `DesignBundle.assembly_checks`. A valid B-rep and correct nominal diameters do not prove that two parts can occupy the intended assembled state.
+
+For every plug, cable, driver, fastener, or service keep-out, call `check_access_envelope` with the full set of printed parts that the path could cross. Pass the required part names separately so a missing geometry entry becomes a blocking finding. Do not replace this matrix with a few manually selected pair checks: clearing a USB envelope against the body and carrier says nothing about an omitted retainer.
 
 ## Manufacturability
 
@@ -53,7 +57,7 @@ Generate the complete `preview/` folder for every design review. Start the bundl
 
 - `index.html` returns HTTP 200;
 - `manifest.json` returns HTTP 200;
-- every model URL in the manifest returns HTTP 200;
+- every model URL in the manifest returns HTTP 200 and matches the generated digest;
 - all intended parts appear in the viewer.
 
 Give the user a clickable URL that is reachable from the user's browser. Use the current environment's supported port-sharing or preview mechanism. Do not give a remote user a loopback URL. Do not assume that a local path is clickable or interactive.

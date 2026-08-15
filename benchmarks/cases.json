@@ -122,6 +122,19 @@
         "signed delta and direction",
         "visual approval before physical test"
       ]
+    },
+    {
+      "id": "serviceable-display-enclosure",
+      "prompt": "Design a smooth PLA enclosure for a rear-loaded circular display board, battery, speaker, USB-C plug access, and a removable component carrier.",
+      "criteria": [
+        "reversible assembly sequence before shell design",
+        "printed owner and closed load path for the display",
+        "manufacturer or conservative hardware references",
+        "full display and carrier insertion paths",
+        "USB plug and cable envelope checked against every printed part",
+        "driver access checked after neighboring hardware is installed",
+        "internal supports clipped to the approved exterior"
+      ]
     }
   ]
 }

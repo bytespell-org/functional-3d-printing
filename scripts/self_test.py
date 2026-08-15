@@ -32,6 +32,7 @@ from functional_fdm import (  # noqa: E402
     ReviewAnnotation,
     FunctionalRequirement,
     Severity,
+    check_access_envelope,
     check_assembly_interference,
     check_fastener_stack,
     check_linear_travel,
@@ -231,6 +232,37 @@ def main() -> int:
         )
         if collision.passed or not any(f.code == "assembly.unintended-interference" for f in collision.findings):
             raise RuntimeError("Final-state assembly interference was not blocked.")
+
+        access_results = check_access_envelope(
+            envelope_name="USB-C plug and cable",
+            envelope_geometry=FakeGeometry(0),
+            part_geometries={
+                "body": FakeGeometry(0),
+                "carrier": FakeGeometry(0),
+                "retainer": FakeGeometry(81.123),
+            },
+            required_parts=("body", "carrier", "retainer"),
+            feature="usb-service",
+        )
+        if len(access_results) != 3 or access_results[0].check_type != "access-envelope-clearance":
+            raise RuntimeError("Access-envelope matrix did not cover every required part.")
+        if access_results[0].findings or access_results[1].findings:
+            raise RuntimeError("Clear access-envelope pairs produced findings.")
+        if not any(f.code == "assembly.access-envelope-blocked" for f in access_results[2].findings):
+            raise RuntimeError("A retainer blocking the USB envelope was not rejected.")
+
+        omitted_access = check_access_envelope(
+            envelope_name="USB-C plug and cable",
+            envelope_geometry=FakeGeometry(0),
+            part_geometries={"body": FakeGeometry(0), "carrier": FakeGeometry(0)},
+            required_parts=("body", "carrier", "retainer"),
+            feature="usb-service",
+        )
+        if not any(
+            f.code == "assembly.access-envelope-part-missing"
+            for f in omitted_access[2].findings
+        ):
+            raise RuntimeError("An omitted retainer silently shrank the USB clearance matrix.")
 
         multipart_graph = AssemblyGraph({"base", "lid"})
         multipart_graph.add_interface(InterfaceSpec("lid", "base", "lid", "sliding collar", {}, "loose", (0, 0, -1), True, 10))
@@ -555,7 +587,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 30}, indent=2))
+    print(json.dumps({"ok": True, "tests": 32}, indent=2))
     return 0
 
 

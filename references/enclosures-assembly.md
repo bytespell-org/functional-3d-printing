@@ -2,7 +2,7 @@
 
 ## Start with the assembly
 
-Before surface detail, define:
+Before surface detail, write the reversible assembly sequence. For each item, state how it enters, seats, attaches, connects, and leaves after wiring. Then define:
 
 - component envelopes and keep-outs;
 - board support and fasteners;
@@ -16,7 +16,11 @@ Before surface detail, define:
 
 Use an `AssemblyGraph`. Each interface records two parts, joint type, nominal geometry, fit, insertion direction, removability, cycles, and hardware.
 
+Assign one printed owner to every retained component. Trace forward, rearward, torque, and service loads from the component to the body. Retention needs opposing constraints: a front lip alone does not prevent rearward motion, and a plate screwed only to the component can leave with it. Model the actual bearing faces and gaps. Do not make a removable closure own the display unless that coupling is intentional and safe during service.
+
 Represent the board, battery, speaker, display, connectors, plugs, and other supplied hardware as `ReferenceComponent` geometry in the assembled coordinate frame. Prefer measured or manufacturer CAD. When neither exists, model the simplest conservative envelope that preserves the known dimensions, exits, and keep-outs; note that it is nominal or assumed. A manufacturer assembly must contain renderable solids, but unlike a printable part it need not be watertight or pass the print mesh audit. Keep reference components out of printable exports and printability audits. Use them in clearance, insertion, wire-route, and service-access checks.
+
+Build passages, datums, supports, bosses, trays, keep-outs, and tool columns as a functional skeleton before the ergonomic shell. Prefer short broad supports, continuous walls, and gussets over tall towers. After the skeleton passes, create one approved exterior volume and intersect internal supports with it so bridges and bosses cannot create accidental exterior points.
 
 ## Lid selection
 
@@ -31,7 +35,7 @@ Do not choose a joint before you know how the internal hardware enters.
 
 ## Cutouts
 
-Continue each connector or wire opening through every wall, rim, lip, and lid that crosses its path. Include the mating plug, not only the receptacle. Open the cutout through a free edge when this removes an unsupported closing roof and does not weaken retention.
+Continue each connector or wire opening through every wall, rim, lip, retainer, and lid that crosses its path. Include the mating plug and cable approach, not only the receptacle. Check that envelope against every printed part in its route with `check_access_envelope`. Open the cutout through a free edge when this removes an unsupported closing roof and does not weaken retention.
 
 ## Serviceability
 

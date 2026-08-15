@@ -1,4 +1,4 @@
 interface:
   display_name: "Functional 3D Printing"
-  short_description: "Design observable, print-ready mechanical parts"
-  default_prompt: "Use $functional-3d-printing to design a functional part, keep dimensions and decisions in the model record, review it with progress and model comments, and prepare the smallest useful print test."
+  short_description: "Design assemblable, observable mechanical parts"
+  default_prompt: "Use $functional-3d-printing to work backward from assembly, load paths, and service access; validate the functional skeleton before shaping the final shell."
