@@ -1,116 +1,35 @@
 # Progressive functional design process
 
-## Proportional workflow
+## Choose the smallest useful workflow
 
-Use the smallest workflow that matches the risk. A simple one-piece part needs the bundle, named part, design record, reviewed print plan, valid geometry, mesh inspection, and a one-part assembly graph; it does not automatically need references, assembly checks, a progress sidecar, comments, or a server. Escalate to fit/assembly records and checks only for mating parts, exact hardware, access paths, or mechanisms. Escalate again to the collaborative workbench only when visual iteration materially helps.
+Use the lightweight path for a simple one-piece part. Add hardware references, interface records, assembly checks, or mechanism tests only when the design contains those risks. Start the collaborative workbench only when visual iteration materially helps.
 
-## Clarification policy
+For a simple part, do not create provenance merely to cite an installed library or standards lookup, and do not use `interface_dispositions` for an obvious hole or opening; keep those facts in dimensions or decisions. Do not hand-author evidence strings that merely restate generated CAD or mesh checks.
 
-Start from information already available in the request, attachments, drawings, listings, and editable source. Extract useful dimensions before asking questions. Keep all supplied dimensions in one simple measurement map. Do not split them into nominal, measured, estimated, or provisional classes.
+Ask users questions directly. Ask only when the answer can change architecture, fit, safety, service, or normal use. First inspect the request, attachments, source tree, and published information; research exact hardware before asking the user to reproduce dimensions that are already available. If a detail is still unknown but work can continue safely, record a conservative assumption and proceed with the smallest testable architecture.
 
-Ask blocking or materially useful questions directly to the end user. Do not tell an operator which questions to ask unless the user explicitly requested an agent handoff, operator script, or delegated workflow. For example: “Which exact ESP32 board or product link are you using? Which connectors or controls must remain accessible, and how should the enclosure reopen?”
+## Record decisions and evidence
 
-Resolve the exact product, variant, and hardware revision before treating a family name such as “ESP32” as fit-controlling truth. If the identity is not recoverable from an attached link, photo, handoff, or source tree, ask for that identity first. Once identified, research it for the user before asking them to measure it. Use this order:
+Keep the editable Python model as the source of truth. Use `DesignRecord` for intent, known dimensions, requirements, assumptions, open questions, decisions, required material or hardware, prototype stage, and the smallest useful physical test. Use `scripts/record_iteration.py` only for observations from a physical print.
 
-1. manufacturer product page, documentation, repository, mechanical drawing, or CAD download;
-2. authorized distributor documentation tied to the exact manufacturer part number;
-3. clearly identified community CAD only as a provisional visual reference that must be checked against primary dimensions.
+Use only these requirement evidence levels:
 
-Record sources with `SourceRecord` and link sourced hardware through `ReferenceComponent.source_id`; see `sources-and-runtime.md`. Check at least the outer profile, mounting features, connector positions, and populated heights against published dimensions before trusting downloaded CAD. Do not silently substitute a nearby development-board variant. If no adequate source exists, make a conservative reference envelope and ask only for the physical measurements that control the chosen architecture.
+- `unverified`: stated or assumed;
+- `cad-checked`: supported by dimensions, envelopes, or assembly checks;
+- `fdm-plausible`: geometry and print-plan checks support manufacture;
+- `physically-tested`: a representative print demonstrates the stated behavior;
+- `function-confirmed`: the assembled object performs its intended use.
 
-Treat every supplied dimension as known. Use it until the user changes it. Before asking for any dimension, inspect the measurement map. If final fit needs a second measurement, cite the value already recorded and explain why confirmation matters. Never ask for the same value as if the user did not supply it.
+Do not turn a CAD pass into a physical claim. Show enough geometry to review the proposal, label uncertain features consistently, and state the mechanism, material, hardware, assumptions, support expectations, and known risks.
 
-Ask only when an answer can materially change:
+## Hardware and prototypes
 
-- mating geometry or required clearance;
-- architecture or part count;
-- normal use or required access;
-- retention, loading, heat, or safety;
-- assembly order or serviceability.
+Ask once when unknown hardware materially changes geometry. If the user delegates the choice, use a conventional parameterized option, label it provisional wherever it appears in the model, BOM, or final report, and do not claim print readiness until its critical dimensions are confirmed or physically tested. Offer a no-special-hardware alternative when practical.
 
-Group related blocking questions into one short request. Do not ask for a complete printer profile, all available hardware, or every minor dimension. Record a conservative assumption when work can continue safely.
-
-## Functional record
-
-Keep the design history in the editable Python model. Use the module docstring for a concise human summary. Use `DesignRecord` for machine-readable data that can flow into `design.json` and `DESIGN.md`.
-
-Record:
-
-- intended function;
-- known dimensions;
-- requirements and their evidence status;
-- assumptions and open questions;
-- decisions and their reasons;
-- material or hardware that the proposal requires;
-- current prototype stage;
-- smallest next test and its success criteria.
-
-Record physical observations and measurements with `scripts/record_iteration.py`, not in `DesignRecord`.
-
-Use these requirement evidence levels:
-
-- `unverified`: stated or assumed, with no check;
-- `cad-checked`: checked by dimensions, envelopes, or assembly geometry;
-- `fdm-plausible`: print orientation and manufacturability checks pass;
-- `physically-tested`: a printed sample demonstrates the specified behavior;
-- `function-confirmed`: the assembled object performs the intended use.
-
-Do not convert a CAD pass into a physical or functional claim.
-
-## Proposal and review
-
-Create enough CAD to make the proposal concrete. Do not delay all modeling until every detail is known.
-
-Show views that answer practical questions:
-
-- assembled shape;
-- exploded relationship;
-- internal clearances;
-- installation or removal movement;
-- intended print orientation;
-- uncertain fits and unsupported regions.
-
-Add stable labels to features that the user can identify or move. Use the same label in the Python model, browser preview, static review image, design record, and conversation. Define the coordinate frame. For a position or size revision, describe the changed dimensions and direction clearly when that helps review. See `visual-review.md`.
-
-State the mechanism, required material and hardware, important assumptions, likely support requirement, and known risks. Ask focused design questions after the user can see the proposal.
-
-Record each design decision and its reason plainly. Do not infer that a request for one feature authorizes unrelated hardware, permanent assembly, or material dependencies; ask only when the missing choice materially changes scope, cost, safety, or normal use.
-
-## Material and hardware policy
-
-Do not ask for a complete inventory first. Ordinary PLA and a 0.4 mm nozzle are the neutral starting assumption when the request gives no process information.
-
-When unknown hardware materially changes the geometry, ask once whether the user wants to identify hardware already available or delegate selection of a conventional provisional family. Do not ask again for an item already supplied or confirmed. If the user delegates the choice, parameterize the dimensions, label the item `provisional` or `required-unconfirmed`, record why it was selected, and keep the design concept-ready until the family is confirmed or its critical fit is physically tested. Confirm actual family, dimensions, and availability before print-ready.
-
-Use small `additional_hardware` entries such as `{"item": "heat-set insert", "specification": "M2.5, nominal 4 mm OD", "quantity": 3, "status": "provisional", "reason": "User requested screws and delegated the family."}`. Recommended statuses are `available`, `confirmed`, `provisional`, and `required-unconfirmed`; this is a record, not an inventory system.
-
-When the best mechanism needs unavailable hardware, offer a no-hardware alternative and explain the tradeoff.
-
-## Prototype gates
-
-Use these stages:
-
-1. `concept`: enough geometry and images to review architecture and operation;
-2. `small-fit-test`: the smallest geometry that preserves the real fit, print orientation, load path, and assembly movement;
-3. `integrated-prototype`: all important interfaces in one assembly, without unnecessary cosmetic or bulk material;
-4. `final`: complete geometry after critical tests pass or the user accepts the remaining risk.
-
-A small fit or mechanism test must have explicit success criteria. Examples include insertion force, retained load, free travel, cycle count, measured play, release method, glass clearance, screw seating, or wire passage.
-
-When a fit or mechanism has real uncertainty, prepare the smallest useful test. Show the interface and its operation, then explain in plain language:
-
-- what the small test prints;
-- what question it answers;
-- what it does not test;
-- how much of the final geometry it preserves;
-- how the result changes the final model.
-
-Ask before preparing the test only when it would exceed the user's scope or require new material, hardware, cost, or authority. Do not use “coupon” without immediately defining it as a small test print.
-
-After a physical test, record the observation, measurement when available, likely cause, smallest change, and next stage. Give assembly instructions that match the printed geometry.
+Use `concept`, `small-fit-test`, `integrated-prototype`, and `final` as prototype stages. A small test should preserve the real fit, material, orientation, load path, and movement needed to answer one uncertainty, with measurable success criteria.
 
 ## Readiness and safety
 
-Use `concept-ready` when the architecture is visible and known facts, assumptions, questions, and risks are explicit. Use `print-ready` only when applicable geometry, assembly, fit, motion, and print-plan blockers are resolved or isolated in a specific test. Use `function-confirmed` only after representative physical testing. Block an unsupported readiness claim, not useful concept work.
+Use `concept-ready` when architecture, facts, assumptions, and unresolved risks are visible. Use `print-ready` only when applicable geometry, fit, assembly, motion, and print-plan failures are resolved or isolated in a specific test. Use `function-confirmed` only after representative physical testing. Block an unsupported claim, not useful concept work.
 
 Pressure containment, mains electrical systems, vehicle-critical parts, lifting or overhead loads, medical use, restraints, and child-safety-critical mechanisms may receive concept CAD, but must not be called production-ready or function-confirmed without qualified engineering review and representative testing.

@@ -91,6 +91,75 @@ def git_output_state(path: Path) -> tuple[Path | None, bool, bool]:
     return root, tracked, ignored
 
 
+def cleanup_generator_owned(output: Path) -> None:
+    """Remove stale generated files without replacing the selected output directory."""
+    previous_parts: set[str] = set()
+    design_path = output / "design.json"
+    if design_path.is_file():
+        try:
+            previous = json.loads(design_path.read_text(encoding="utf-8"))
+            previous_parts = {
+                item["name"]
+                for item in previous.get("parts", [])
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            }
+        except (OSError, json.JSONDecodeError):
+            previous_parts = set()
+
+    for directory, patterns in (
+        (output / "parts", ("*.step", "*.stl", "*.mesh-audit.json")),
+        (output / "reference-models", ("*.stl",)),
+    ):
+        if directory.is_dir():
+            for pattern in patterns:
+                for path in directory.glob(pattern):
+                    if path.is_file():
+                        path.unlink()
+
+    render_dir = output / "renders"
+    generated_views = (
+        "iso.png", "exploded_iso.png", "front.png", "back.png",
+        "left.png", "right.png", "top.png", "bottom.png",
+    )
+    for name in previous_parts | {"assembly"}:
+        directory = render_dir / name
+        if not directory.is_dir():
+            continue
+        for filename in generated_views:
+            path = directory / filename
+            if path.is_file():
+                path.unlink()
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    assembly_step = output / "assembly.step"
+    if assembly_step.is_file():
+        assembly_step.unlink()
+
+
+def reconcile_runtime_state(
+    manifest: dict[str, object], failures: list[str]
+) -> dict[str, int]:
+    """Apply runtime failures to existing readiness fields and summarize findings."""
+    manifest["execution_failures"] = list(failures)
+    manifest["blocked"] = bool(failures) or bool(manifest.get("blocked"))
+    readiness = manifest.get("readiness")
+    if failures and isinstance(readiness, dict):
+        readiness["print_ready"] = False
+        readiness["function_confirmed"] = False
+
+    counts = {"blocking": len(failures), "likely_failure": 0, "caution": 0}
+    for finding in manifest.get("findings", []):
+        if not isinstance(finding, dict):
+            continue
+        severity = str(finding.get("severity", "")).lower().replace("-", "_")
+        if severity in counts:
+            counts[severity] += 1
+    manifest["finding_counts"] = counts
+    return counts
+
+
 def resolve_output_plan(
     model: Path,
     requested: Path | None = None,
@@ -238,8 +307,8 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
     if reference_components:
         lines.extend(["## Non-printable reference components", ""])
         basis_wording = {
-            "direct-source-cad": "Used the manufacturer CAD directly as non-printable reference geometry.",
-            "source-derived-envelope": "Built a simplified reference envelope checked against the linked source CAD or drawing.",
+            "direct-source-cad": "Used the linked source CAD directly as non-printable reference geometry.",
+            "source-derived-envelope": "Built a simplified reference envelope from or checked against the linked source material.",
             "measured-envelope": "Built the reference geometry from physical measurements.",
             "nominal-envelope": "Used provisional nominal reference geometry.",
         }
@@ -275,6 +344,11 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
         lines.append(f"- **{finding['severity']} — {finding['code']}**: {finding['message']}")
         if finding.get("recommendation"):
             lines.append(f"  - Action: {finding['recommendation']}")
+    failures = manifest.get("execution_failures", [])
+    if failures:
+        lines.extend(["", "## Execution failures", ""])
+        for failure in failures:  # type: ignore[union-attr]
+            lines.append(f"- {failure}")
     lines.extend(["", "## Small physical tests", "", "Use a small fit or mechanism test whenever it answers a real uncertainty. State what it tests, what it does not test, and how the result changes the full model. Do not request printer calibration data by default.", ""])
     return "\n".join(lines)
 
@@ -302,6 +376,7 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
     manifest = bundle.as_manifest()
     manifest["output_policy"] = output_policy
     output.mkdir(parents=True, exist_ok=True)
+    cleanup_generator_owned(output)
     part_dir = output / "parts"
     reference_dir = output / "reference-models"
     render_dir = output / "renders"
@@ -494,12 +569,17 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
         except Exception as error:
             failures.append(f"Assembly STEP export failed: {error}")
 
+    execution_failures = list(failures)
     semantic_blockers = [
         finding for finding in bundle.validate_metadata() if finding.severity >= Severity.BLOCKING
     ]
     failures.extend(f"{finding.code}: {finding.message}" for finding in semantic_blockers)
-    manifest["execution_failures"] = failures
-    manifest["blocked"] = bool(failures) or manifest["blocked"]
+    finding_counts = reconcile_runtime_state(manifest, execution_failures)
+    manifest["blocked"] = bool(failures) or bool(manifest.get("blocked"))
+    if not stl_paths:
+        stale_preview_manifest = output / "preview" / "manifest.json"
+        if stale_preview_manifest.is_file():
+            stale_preview_manifest.unlink()
     (output / "design.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (output / "DESIGN.md").write_text(markdown(bundle, manifest), encoding="utf-8")
     result = {
@@ -508,6 +588,8 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
         "output_policy": output_policy,
         "parts": len(stl_paths),
         "failures": failures,
+        "readiness": manifest.get("readiness", {}),
+        "finding_counts": finding_counts,
     }
     print(json.dumps(result, indent=2))
     return 0 if not failures else 1

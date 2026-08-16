@@ -17,8 +17,6 @@ from functional_fdm import (
     FunctionalRequirement,
     PrintPlan,
     ReferenceComponent,
-    ReviewAnnotation,
-    SourceRecord,
 )
 from functional_fdm.primitives import enclosure_shell
 
@@ -52,7 +50,7 @@ def build() -> DesignBundle:
     )
     graph = AssemblyGraph({"base"})
     battery_envelope = cq.Workplane("XY").box(
-        25.0, 40.0, 10.0, centered=(True, True, False)
+        40.0, 25.0, 10.0, centered=(True, True, False)
     )
     record = DesignRecord(
         intent="Demonstrate the required function with the smallest useful prototype.",
@@ -64,15 +62,14 @@ def build() -> DesignBundle:
         requirements=[
             FunctionalRequirement(
                 "holds-envelope",
-                "The part contains the measured internal envelope without interference.",
-                status="cad-checked",
-                verification_method="Numeric envelope and collision checks",
+                "The nominal battery envelope fits inside the intended cavity.",
+                status="unverified",
+                verification_method="Check the envelope and physical battery before adapting this template.",
             )
         ],
         assumptions=["Desktop FDM with a 0.4 mm nozzle."],
         available_materials=[],
         additional_hardware=[],
-        interface_dispositions={"example opening": "unresolved"},
         decisions=[
             DesignDecision(
                 "Start with one open enclosure shell.",
@@ -81,15 +78,6 @@ def build() -> DesignBundle:
         ],
         prototype_stage="concept",
         test_plan=["Use a small fit test if the rendered interface leaves a material uncertainty."],
-        sources=[
-            SourceRecord(
-                source_id="project-handoff",
-                url="file://MEASUREMENTS.md",
-                product_revision="Example dimensions; replace with the exact hardware revision.",
-                license="project-local",
-                verified_features=("internal envelope",),
-            )
-        ],
     )
     return DesignBundle(
         name="functional-cad-example",
@@ -101,22 +89,12 @@ def build() -> DesignBundle:
                 color="#38bdf8",
                 opacity=0.38,
                 position_mm=(0.0, 0.0, 1.8),
-                nominal_size_mm=(25.0, 40.0, 10.0),
-                notes=["Simplified envelope derived from the linked project handoff."],
-                source_id="project-handoff",
-                geometry_basis="source-derived-envelope",
+                nominal_size_mm=(40.0, 25.0, 10.0),
+                notes=["Nominal placeholder; replace with the selected battery dimensions."],
+                geometry_basis="nominal-envelope",
             )
         ],
         assembly=graph,
         assumptions={"nozzle_mm": profile.nozzle_mm, "material": profile.material},
         design_record=record,
-        review_annotations=[
-            ReviewAnnotation(
-                "internal-envelope",
-                "Internal envelope center",
-                (0.0, 0.0, 8.4),
-                part="base",
-                description="Stable name for discussing envelope position and clearance.",
-            )
-        ],
     )

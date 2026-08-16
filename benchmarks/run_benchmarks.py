@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +48,81 @@ from functional_fdm.primitives import (  # noqa: E402
 from functional_fdm.validation import classify_overhang  # noqa: E402
 
 
+def check_stable_output_reuse() -> tuple[bool, object]:
+    model_source = '''
+import os
+import cadquery as cq
+from functional_fdm import AssemblyGraph, DesignBundle, DesignPart, DesignRecord, PrintPlan, ReferenceComponent
+
+PLAN = PrintPlan(support_mode="none", reviewed=True, review_evidence="Boxes sit flat on the bed.")
+def build():
+    if os.environ.get("OUTPUT_REUSE_REVISION") == "first":
+        parts = [
+            DesignPart("base", cq.Workplane("XY").box(10, 10, 2), "flat", "PLA", print_plan=PLAN),
+            DesignPart("lid", cq.Workplane("XY").box(8, 8, 2).translate((15, 0, 0)), "flat", "PLA", print_plan=PLAN),
+        ]
+        references = [ReferenceComponent("board", cq.Workplane("XY").box(5, 5, 1), geometry_basis="nominal-envelope")]
+    else:
+        parts = [DesignPart("body", cq.Workplane("XY").box(12, 12, 3), "flat", "PLA", print_plan=PLAN)]
+        references = []
+    return DesignBundle(
+        name="output-reuse",
+        parts=parts,
+        reference_components=references,
+        assembly=AssemblyGraph({part.name for part in parts}),
+        design_record=DesignRecord(intent="Exercise stable output reuse."),
+    )
+'''
+    with tempfile.TemporaryDirectory(prefix="functional-fdm-output-reuse-") as temporary:
+        root = Path(temporary)
+        output = root / "output"
+        model = root / "model.py"
+        model.write_text(model_source, encoding="utf-8")
+        command = [sys.executable, str(SKILL_ROOT / "scripts" / "run_model.py")]
+        first_environment = dict(os.environ)
+        first_environment["OUTPUT_REUSE_REVISION"] = "first"
+        first_run = subprocess.run(
+            [*command, str(model), "--output-dir", str(output)],
+            check=False,
+            text=True,
+            capture_output=True,
+            env=first_environment,
+        )
+        sentinel = output / "sentinel.txt"
+        sentinel.write_text("preserve", encoding="utf-8")
+        second_run = subprocess.run(
+            [*command, str(model), "--output-dir", str(output)],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        manifest = json.loads((output / "preview" / "manifest.json").read_text(encoding="utf-8"))
+        current_names = [item["name"] for item in manifest["parts"]]
+        obsolete = [
+            output / "parts" / "base.stl",
+            output / "parts" / "lid.stl",
+            output / "reference-models" / "board.stl",
+            output / "renders" / "base",
+            output / "renders" / "lid",
+        ]
+        ok = (
+            first_run.returncode == 0
+            and second_run.returncode == 0
+            and (output / "parts" / "body.stl").is_file()
+            and sentinel.is_file()
+            and not any(path.exists() for path in obsolete)
+            and current_names == ["body"]
+            and all((output / "preview" / item["file"]).is_file() for item in manifest["parts"])
+        )
+        return ok, {
+            "first_exit": first_run.returncode,
+            "second_exit": second_run.returncode,
+            "current_parts": current_names,
+            "obsolete_remaining": [str(path.relative_to(output)) for path in obsolete if path.exists()],
+            "sentinel_preserved": sentinel.is_file(),
+        }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--geometry", action="store_true", help="Require CadQuery/cq_warehouse geometry checks.")
@@ -56,11 +134,24 @@ def main() -> int:
     eval_catalog = json.loads(eval_catalog_path.read_text(encoding="utf-8"))
     eval_cases = eval_catalog.get("cases", [])
     eval_ids = [item.get("id") for item in eval_cases if isinstance(item, dict)]
+    detail_paths = [
+        item.get("details")
+        for item in eval_cases
+        if isinstance(item, dict) and item.get("details") is not None
+    ]
+    details_ok = all(
+        isinstance(relative, str)
+        and relative.startswith("benchmarks/cases/")
+        and ".." not in Path(relative).parts
+        and (SKILL_ROOT / relative).is_file()
+        for relative in detail_paths
+    )
     catalog_ok = (
         eval_catalog.get("schema_version") == 1
         and len(eval_ids) == len(eval_cases)
         and all(isinstance(identifier, str) and identifier for identifier in eval_ids)
         and len(set(eval_ids)) == len(eval_ids)
+        and details_ok
         and all(
             isinstance(item.get("prompt"), str)
             and item["prompt"].strip()
@@ -270,6 +361,10 @@ def main() -> int:
     if args.geometry:
         mechanisms_ok = mechanisms_ok and all(feature.geometry is not None for feature in (annular, tongue, hinge))
     case("joint-library", mechanisms_ok, {"annular": annular.as_dict(), "tongue": tongue.as_dict(), "hinge": hinge.as_dict(), "living_hinge_rejection": living.as_dict()})
+
+    if args.geometry:
+        reuse_ok, reuse_evidence = check_stable_output_reuse()
+        case("stable-output-reuse", reuse_ok, reuse_evidence)
 
     failures = [result for result in results if not result["ok"]]
     print(json.dumps({

@@ -144,6 +144,7 @@
       "criteria": [
         "uses the lightweight one-part workflow",
         "does not require reference hardware when dimensions are supplied",
+        "does not add provenance or interface-disposition records for an obvious hole",
         "does not start a preview server or sidecar by default"
       ]
     },
@@ -164,23 +165,16 @@
       "follow_up": "It’s the Waveshare ESP32-S3-Touch-AMOLED-1.75:\nhttps://www.waveshare.com/esp32-s3-touch-amoled-1.75.htm\n\nI need USB-C accessible, but I don’t need the pin headers exposed. I want to be able to open it again, so screws sound good. It’ll be printed in PLA on a Bambu P1S with a 0.4 mm nozzle. No outdoor use or unusual heat. Please go ahead.",
       "expected_activation": true,
       "expected_level": "fit-or-assembly",
+      "details": "benchmarks/cases/waveshare-esp32-case.md",
       "criteria": [
-        "asks the end user directly for exact board identity and only architecture-changing choices",
-        "does not emit operator-facing instructions unless an operator handoff was requested",
-        "researches primary Waveshare sources and attempts direct source CAD import",
-        "keeps unclear-license source CAD local and exports only a source-derived envelope",
-        "records direct versus source-derived reference geometry accurately",
-        "does not overstate source fidelity in final prose",
-        "records every documented onboard interface in DesignRecord.interface_dispositions, including USB-C as accessible and headers as intentionally enclosed",
-        "gives the board and display a deliberate printed retention owner, direction-by-direction opposing constraints, removable load path, and safe bearing regions",
-        "checks retained hardware against its owner and closure in final state and during installation and removal",
-        "does not clamp active or inactive cover glass, or populated PCB regions, without a documented structural bearing surface",
-        "treats unconfirmed screws or inserts as parameterized provisional hardware",
-        "surfaces thin-floor and other significant structural cautions",
-        "remains concept-ready while hardware and physical fit are unverified",
-        "uses scratch or one stable output directory for transient revisions",
-        "produces one final bundle without numbered output clutter",
-        "matches final prose to the design record evidence level"
+        "asks direct clarification questions that can change the design",
+        "researches the exact hardware from primary sources",
+        "distinguishes direct and derived reference geometry",
+        "uses deliberate electronics retention without clamping fragile surfaces",
+        "marks hardware assumptions as provisional",
+        "keeps evidence and readiness claims bounded",
+        "surfaces important cautions",
+        "produces one clean final output bundle"
       ]
     },
     {

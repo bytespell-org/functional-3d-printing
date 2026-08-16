@@ -47,7 +47,12 @@ from functional_fdm import (  # noqa: E402
 )
 from functional_fdm.primitives import cantilever_snap, fit_pair, magnet_pocket  # noqa: E402
 from functional_fdm.validation import classify_overhang  # noqa: E402
-from run_model import markdown, resolve_output_plan  # noqa: E402
+from run_model import (  # noqa: E402
+    cleanup_generator_owned,
+    markdown,
+    reconcile_runtime_state,
+    resolve_output_plan,
+)
 from serve_preview import PreviewHandler, REVIEW_TOKEN_ENV, build_review_urls  # noqa: E402
 
 
@@ -405,7 +410,7 @@ def main() -> int:
         if "usb-c: accessible" not in markdown(recorded, manifest):
             raise RuntimeError("Generated DESIGN.md omitted onboard interface dispositions.")
         sourced_markdown = markdown(sourced_bundle, sourced_manifest)
-        if "Used the manufacturer CAD directly" not in sourced_markdown:
+        if "Used the linked source CAD directly" not in sourced_markdown:
             raise RuntimeError("Generated DESIGN.md did not describe direct source CAD accurately.")
         derived_bundle = DesignBundle(
             "derived",
@@ -419,7 +424,7 @@ def main() -> int:
                 geometry_basis="source-derived-envelope",
             )],
         )
-        if "Built a simplified reference envelope checked against" not in markdown(
+        if "Built a simplified reference envelope from or checked against" not in markdown(
             derived_bundle, derived_bundle.as_manifest()
         ):
             raise RuntimeError("Generated DESIGN.md did not distinguish a derived envelope.")
@@ -462,6 +467,19 @@ def main() -> int:
             raise RuntimeError("A disclosed caution automatically prevented print-ready.")
         if not any(item["severity"] == "CAUTION" for item in caution_manifest["findings"]):
             raise RuntimeError("A caution disappeared from generated findings.")
+
+        runtime_manifest = caution_bundle.as_manifest()
+        runtime_counts = reconcile_runtime_state(
+            runtime_manifest, ["Part 'part' failed the STL mesh audit."]
+        )
+        if not runtime_manifest["readiness"]["concept_ready"]:
+            raise RuntimeError("A runtime failure incorrectly removed useful concept readiness.")
+        if runtime_manifest["readiness"]["print_ready"] or runtime_manifest["readiness"]["function_confirmed"]:
+            raise RuntimeError("A runtime failure remained compatible with print or function readiness.")
+        if runtime_counts["blocking"] != 1 or "## Execution failures" not in markdown(
+            caution_bundle, runtime_manifest
+        ):
+            raise RuntimeError("Runtime failure summary or generated documentation is incomplete.")
 
         likely_record = DesignRecord(
             intent="Keep useful concept work available.",
@@ -924,6 +942,37 @@ def main() -> int:
         if repeated_plan.path != explicit_plan.path or repeated_plan.path.name != "chosen-output":
             raise RuntimeError("Repeated generation invented a numbered revision directory.")
 
+        reuse = root / "reused-output"
+        (reuse / "parts").mkdir(parents=True)
+        (reuse / "reference-models").mkdir()
+        for name in ("base", "lid"):
+            for suffix in (".step", ".stl", ".mesh-audit.json"):
+                (reuse / "parts" / f"{name}{suffix}").write_text("generated", encoding="utf-8")
+            (reuse / "renders" / name).mkdir(parents=True)
+            (reuse / "renders" / name / "iso.png").write_text("generated", encoding="utf-8")
+        (reuse / "renders" / "assembly").mkdir()
+        (reuse / "renders" / "base" / "user-caption.txt").write_text("preserve", encoding="utf-8")
+        (reuse / "reference-models" / "board.stl").write_text("generated", encoding="utf-8")
+        (reuse / "assembly.step").write_text("generated", encoding="utf-8")
+        (reuse / "sentinel.txt").write_text("preserve me", encoding="utf-8")
+        (reuse / "parts" / "user-notes.txt").write_text("preserve me too", encoding="utf-8")
+        (reuse / "design.json").write_text(
+            json.dumps({"parts": [{"name": "base"}, {"name": "lid"}]}),
+            encoding="utf-8",
+        )
+        cleanup_generator_owned(reuse)
+        stale_owned = list((reuse / "parts").glob("*.stl")) + list(
+            (reuse / "reference-models").glob("*.stl")
+        )
+        if stale_owned or (reuse / "assembly.step").exists() or (reuse / "renders" / "base" / "iso.png").exists():
+            raise RuntimeError("Stable-output cleanup retained obsolete generator-owned artifacts.")
+        if (
+            not (reuse / "sentinel.txt").is_file()
+            or not (reuse / "parts" / "user-notes.txt").is_file()
+            or not (reuse / "renders" / "base" / "user-caption.txt").is_file()
+        ):
+            raise RuntimeError("Stable-output cleanup removed an unknown user-authored file.")
+
         standalone = root / "standalone" / "part.py"
         standalone.parent.mkdir()
         standalone.write_text("def build(): pass\n", encoding="utf-8")
@@ -931,7 +980,7 @@ def main() -> int:
         if temporary_plan.mode != "temporary" or not temporary_plan.temporary:
             raise RuntimeError("Standalone model did not use a temporary output directory.")
 
-    print(json.dumps({"ok": True, "tests": 51}, indent=2))
+    print(json.dumps({"ok": True, "tests": 53}, indent=2))
     return 0
 
 
