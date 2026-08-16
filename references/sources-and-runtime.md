@@ -4,7 +4,20 @@
 
 For a named board or component, search primary sources before asking the user to reproduce information that is already published. Prefer the exact manufacturer's CAD, mechanical drawing, product documentation, and source repository. Use authorized distributor documents only when they match the exact manufacturer part number. Treat community models as provisional unless primary dimensions independently verify the fit-controlling geometry.
 
-Create one `SourceRecord` per drawing, model, or document with a stable `source_id`, absolute URL, product/revision, retrieval date, license or redistribution constraint, and the features actually checked. Link each sourced `ReferenceComponent` through `source_id`. Its `position_mm` and `rotation_deg` already own the scene transform; do not duplicate transforms in provenance. Do not redistribute a downloaded model when its license is unclear; keep a local reference and provide the source link instead. A detailed STEP file is not automatically correct—verify outline, mounting features, connectors, and maximum populated heights before using it for clearance.
+Create one `SourceRecord` per drawing, model, or document with a stable `source_id`, absolute URL, product/revision, retrieval date, license or redistribution constraint, and the features actually checked. Link each sourced `ReferenceComponent` through `source_id`. Its `position_mm` and `rotation_deg` already own the scene transform; do not duplicate transforms in provenance.
+
+Record each reference component's `geometry_basis` as `direct-source-cad`, `source-derived-envelope`, `measured-envelope`, or `nominal-envelope`. When exact manufacturer CAD is available, attempt to import and inspect it. Prefer using it directly as non-printable visual/reference geometry when licensing, geometry quality, and runtime performance permit, while retaining purpose-built simplified envelopes for connector, cable, tool, tolerance, or motion checks. Direct CAD and simplified envelopes may coexist. If direct CAD is not used, record why in a `DesignDecision`; it is not an unconditional blocker for concept work.
+
+`ReferenceComponent` geometry is exported into the generated reference-model and portable-preview artifacts. Therefore use `direct-source-cad` there only when redistribution is permitted. When license terms are unclear, keep the imported CAD outside `DesignBundle` for local inspection/checks, link its `SourceRecord`, and put only a `source-derived-envelope` into the generated bundle. Never convert source CAD to STL merely to evade its redistribution terms.
+
+Match user-facing claims to the recorded basis:
+
+- `direct-source-cad`: “Used the manufacturer CAD directly as non-printable reference geometry.”
+- `source-derived-envelope`: “Built a simplified reference envelope checked against the manufacturer CAD and drawing.”
+- `measured-envelope`: “Built the reference geometry from physical measurements.”
+- `nominal-envelope`: “Used provisional nominal reference geometry.”
+
+Never say “built from the exact manufacturer CAD” unless the relevant reference is `direct-source-cad`. A detailed STEP file is not automatically correct—verify outline, mounting features, connectors, and maximum populated heights before using it for clearance.
 
 ## Runtime
 

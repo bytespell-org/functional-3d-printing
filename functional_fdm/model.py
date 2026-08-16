@@ -17,6 +17,18 @@ REQUIREMENT_STATUSES = frozenset({
 })
 PROTOTYPE_STAGES = frozenset({"concept", "small-fit-test", "integrated-prototype", "final"})
 READINESS_LEVELS = frozenset({"concept-ready", "print-ready", "function-confirmed"})
+REFERENCE_GEOMETRY_BASES = frozenset({
+    "direct-source-cad",
+    "source-derived-envelope",
+    "measured-envelope",
+    "nominal-envelope",
+})
+INTERFACE_DISPOSITIONS = frozenset({
+    "accessible",
+    "intentionally enclosed",
+    "not present on this variant",
+    "unresolved",
+})
 
 
 class Severity(IntEnum):
@@ -353,6 +365,7 @@ class ReferenceComponent:
     nominal_size_mm: tuple[float, float, float] | None = None
     notes: list[str] = field(default_factory=list)
     source_id: str | None = None
+    geometry_basis: str = "nominal-envelope"
 
     def validate(self) -> list[Finding]:
         findings: list[Finding] = []
@@ -398,6 +411,30 @@ class ReferenceComponent:
                     f"Reference component {self.name!r} has invalid nominal dimensions.",
                 )
             )
+        if self.geometry_basis not in REFERENCE_GEOMETRY_BASES:
+            findings.append(
+                Finding(
+                    "reference.invalid-geometry-basis",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} has unknown geometry basis {self.geometry_basis!r}.",
+                    recommendation=(
+                        "Use direct-source-cad, source-derived-envelope, "
+                        "measured-envelope, or nominal-envelope."
+                    ),
+                )
+            )
+        if (
+            self.geometry_basis in {"direct-source-cad", "source-derived-envelope"}
+            and not self.source_id
+        ):
+            findings.append(
+                Finding(
+                    "reference.geometry-basis-missing-source",
+                    Severity.BLOCKING,
+                    f"Reference component {self.name!r} claims {self.geometry_basis!r} without a source_id.",
+                    recommendation="Link the source geometry or drawing through DesignRecord.sources.",
+                )
+            )
         return findings
 
     def as_dict(self) -> dict[str, Any]:
@@ -411,6 +448,7 @@ class ReferenceComponent:
             "nominal_size_mm": list(self.nominal_size_mm) if self.nominal_size_mm else None,
             "notes": self.notes,
             "source_id": self.source_id,
+            "geometry_basis": self.geometry_basis,
         }
 
 
@@ -684,6 +722,7 @@ class DesignRecord:
     open_questions: list[str] = field(default_factory=list)
     available_materials: list[str] = field(default_factory=list)
     additional_hardware: list[dict[str, Any]] = field(default_factory=list)
+    interface_dispositions: dict[str, str] = field(default_factory=dict)
     decisions: list[DesignDecision] = field(default_factory=list)
     prototype_stage: str = "concept"
     test_plan: list[str] = field(default_factory=list)
@@ -721,6 +760,18 @@ class DesignRecord:
             )
         for requirement in self.requirements:
             findings.extend(requirement.validate())
+        for interface, disposition in self.interface_dispositions.items():
+            if not interface.strip() or disposition not in INTERFACE_DISPOSITIONS:
+                findings.append(
+                    Finding(
+                        "design-record.invalid-interface-disposition",
+                        Severity.BLOCKING,
+                        f"Interface {interface!r} has invalid disposition {disposition!r}.",
+                        recommendation=(
+                            "Use accessible, intentionally enclosed, not present on this variant, or unresolved."
+                        ),
+                    )
+                )
         if self.prototype_stage not in PROTOTYPE_STAGES:
             findings.append(
                 Finding(
@@ -771,6 +822,7 @@ class DesignRecord:
             "open_questions": self.open_questions,
             "available_materials": self.available_materials,
             "additional_hardware": self.additional_hardware,
+            "interface_dispositions": self.interface_dispositions,
             "decisions": [decision.as_dict() for decision in self.decisions],
             "prototype_stage": self.prototype_stage,
             "readiness": self.readiness,
@@ -960,12 +1012,12 @@ class DesignBundle:
                 finding.severity >= Severity.BLOCKING for finding in record_findings
             )
             requirement_statuses = [item.status for item in self.design_record.requirements]
-            blockers_before_readiness = any(
-                finding.severity >= Severity.BLOCKING for finding in findings
+            print_risks_before_readiness = any(
+                finding.severity >= Severity.LIKELY_FAILURE for finding in findings
             )
             print_ready = (
                 concept_ready
-                and not blockers_before_readiness
+                and not print_risks_before_readiness
                 and bool(requirement_statuses)
                 and "unverified" not in requirement_statuses
             )
@@ -1007,15 +1059,15 @@ class DesignBundle:
             finding.severity >= Severity.BLOCKING for finding in record.validate()
         )
         requirement_statuses = [item.status for item in record.requirements] if record else []
-        non_readiness_blocked = any(
-            finding.severity >= Severity.BLOCKING
+        non_readiness_print_risk = any(
+            finding.severity >= Severity.LIKELY_FAILURE
             and finding.code != "readiness.unsupported-claim"
             for finding in findings
         )
         concept_ready = not record_blocked
         print_ready = (
             concept_ready
-            and not non_readiness_blocked
+            and not non_readiness_print_risk
             and bool(requirement_statuses)
             and "unverified" not in requirement_statuses
         )

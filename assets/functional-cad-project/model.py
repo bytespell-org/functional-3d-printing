@@ -72,6 +72,7 @@ def build() -> DesignBundle:
         assumptions=["Desktop FDM with a 0.4 mm nozzle."],
         available_materials=[],
         additional_hardware=[],
+        interface_dispositions={"example opening": "unresolved"},
         decisions=[
             DesignDecision(
                 "Start with one open enclosure shell.",
@@ -101,8 +102,9 @@ def build() -> DesignBundle:
                 opacity=0.38,
                 position_mm=(0.0, 0.0, 1.8),
                 nominal_size_mm=(25.0, 40.0, 10.0),
-                notes=["Nominal envelope; replace with a physical measurement."],
+                notes=["Simplified envelope derived from the linked project handoff."],
                 source_id="project-handoff",
+                geometry_basis="source-derived-envelope",
             )
         ],
         assembly=graph,

@@ -14,6 +14,7 @@
 
 - Every named part exists in the graph.
 - Every retained component has one owner and a closed load path to the body in each constrained direction.
+- Every retained hardware reference has applicable numeric final-state clearance plus installation and removal checks against its owner and any closure; a render or nominal contact alone does not support `cad-checked` retention.
 - Every multipart interface has a numeric final-state interference check and a motion check appropriate to how it actually assembles.
 - Straight interfaces record an insertion direction; rotary or compound interfaces record their sampled poses and axes.
 - Mating axes and surfaces align.
@@ -67,10 +68,14 @@ When a server is unnecessary or unsafe, preserve the preview folder and show sta
 ## Readiness claims
 
 - `concept-ready`: architecture and evidence boundaries are visible; open risks may remain explicit.
-- `print-ready`: no applicable blocking geometry, assembly, fit, motion, or print-plan findings remain, and critical unknown fits are characterized or isolated in a specific test.
+- `print-ready`: no applicable `BLOCKING` or `LIKELY_FAILURE` geometry, assembly, fit, motion, or print-plan findings remain, and critical unknown fits are characterized or isolated in a specific test. A disclosed `CAUTION` may remain when it does not contradict the claim.
 - `function-confirmed`: representative physical testing demonstrates the intended use.
 
 An unsupported readiness claim is blocking. Unresolved physical uncertainty does not prevent generating and reviewing concept CAD.
+
+In the final user-facing report, distinguish execution failures, blocking findings, likely failures, cautions, outstanding physical tests, and claimed readiness. Summarize every unresolved `CAUTION` or `LIKELY_FAILURE` affecting load paths, enclosure floors or primary walls, retained hardware, fasteners, fit-controlling interfaces, service cycles, critical visible surfaces, or electronics retention. “No blocking findings remain” is not a substitute for disclosing a two-nozzle-width floor or provisional insert fit.
+
+Match source-fidelity prose to each `ReferenceComponent.geometry_basis`; use the factual wording generated in `DESIGN.md` rather than upgrading a derived envelope into an “exact CAD” claim.
 
 ## Functional evidence
 
@@ -97,6 +102,8 @@ Generate into the selected output directory:
 - static renders;
 - interactive Three.js preview;
 - small fit or mechanism tests when risk requires them.
+
+Regenerate ordinary CAD revisions into one stable output directory. Use scratch directories for transient failed experiments, and preserve editable source, one final generated bundle, and a concise description of important revisions. Keep superseded complete bundles only for evaluation, validator debugging, reproducibility, or explicit user request. Do not create `output-v2`, `output-v3`, and similar folders by default. Reuse `python scripts/run_model.py source/model.py --output-dir output`; `record_iteration.py` remains reserved for physical observations, not unprinted CAD revisions.
 
 Use this output order:
 

@@ -21,6 +21,10 @@ Select material from load, temperature, UV, chemical exposure, impact, fatigue, 
 - A thin snap beam gets strength from solid geometry and orientation, not infill.
 - Keep loaded holes and bosses away from free edges.
 - Avoid sharp internal corners at flexure roots.
+- Express enclosure floors and primary load-bearing walls in nozzle widths. A reusable floor or primary wall below three nozzle widths needs explicit justification; existing feature checks below roughly 1.8 nozzle widths remain likely-failure territory.
+- Transfer screw-boss load into a wall, rib, or sufficiently supported floor rather than a thin membrane.
+- Treat approximately one-layer-high support pads as shims, not the primary reusable support architecture, unless that limited role is explicit.
+- Bypass display glass and fragile electronics with the clamp path. Prefer broad known-safe bearing regions over tiny contacts.
 
 ## Process recommendations
 

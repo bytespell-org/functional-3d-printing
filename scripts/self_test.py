@@ -30,6 +30,7 @@ from functional_fdm import (  # noqa: E402
     DesignDecision,
     DesignPart,
     DesignRecord,
+    Finding,
     FitProfile,
     InterfaceSpec,
     PrintPlan,
@@ -46,7 +47,7 @@ from functional_fdm import (  # noqa: E402
 )
 from functional_fdm.primitives import cantilever_snap, fit_pair, magnet_pocket  # noqa: E402
 from functional_fdm.validation import classify_overhang  # noqa: E402
-from run_model import resolve_output_plan  # noqa: E402
+from run_model import markdown, resolve_output_plan  # noqa: E402
 from serve_preview import PreviewHandler, REVIEW_TOKEN_ENV, build_review_urls  # noqa: E402
 
 
@@ -314,6 +315,7 @@ def main() -> int:
             ],
             assumptions=["0.4 mm nozzle"],
             available_materials=["PLA"],
+            interface_dispositions={"usb-c": "accessible", "pin headers": "intentionally enclosed"},
             decisions=[
                 DesignDecision(
                     "Use a sliding cover.",
@@ -346,6 +348,7 @@ def main() -> int:
             ],
             prototype_stage="prototype-ish",
             readiness="function-confirmed",
+            interface_dispositions={"usb-c": "probably open"},
             sources=[
                 SourceRecord("board", "not-an-absolute-url", retrieved_on="yesterday"),
                 SourceRecord("board", "https://example.com/duplicate"),
@@ -363,6 +366,7 @@ def main() -> int:
             "requirement.physical-claim-missing-evidence",
             "requirement.invalid-status",
             "design-record.invalid-prototype-stage",
+            "design-record.invalid-interface-disposition",
             "source.invalid-url",
             "source.invalid-retrieval-date",
             "source.duplicate-id",
@@ -382,12 +386,106 @@ def main() -> int:
             [DesignPart("base", None, "flat", "PLA", print_plan=safe_print_plan)],
             AssemblyGraph({"base"}),
             design_record=sourced_record,
-            reference_components=[ReferenceComponent("board", None, source_id="board-drawing")],
+            reference_components=[ReferenceComponent(
+                "board",
+                None,
+                source_id="board-drawing",
+                geometry_basis="direct-source-cad",
+            )],
         )
         if any(f.severity >= Severity.BLOCKING for f in sourced_bundle.validate_metadata()):
             raise RuntimeError("Valid linked provenance produced a blocking finding.")
-        if sourced_bundle.as_manifest()["reference_components"][0]["source_id"] != "board-drawing":
+        sourced_manifest = sourced_bundle.as_manifest()
+        if sourced_manifest["reference_components"][0]["source_id"] != "board-drawing":
             raise RuntimeError("Reference provenance link was not exported.")
+        if sourced_manifest["reference_components"][0]["geometry_basis"] != "direct-source-cad":
+            raise RuntimeError("Reference geometry basis was not exported.")
+        if manifest["design_record"]["interface_dispositions"]["usb-c"] != "accessible":
+            raise RuntimeError("Onboard interface dispositions were not exported.")
+        if "usb-c: accessible" not in markdown(recorded, manifest):
+            raise RuntimeError("Generated DESIGN.md omitted onboard interface dispositions.")
+        sourced_markdown = markdown(sourced_bundle, sourced_manifest)
+        if "Used the manufacturer CAD directly" not in sourced_markdown:
+            raise RuntimeError("Generated DESIGN.md did not describe direct source CAD accurately.")
+        derived_bundle = DesignBundle(
+            "derived",
+            [DesignPart("base", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"base"}),
+            design_record=sourced_record,
+            reference_components=[ReferenceComponent(
+                "board-envelope",
+                None,
+                source_id="board-drawing",
+                geometry_basis="source-derived-envelope",
+            )],
+        )
+        if "Built a simplified reference envelope checked against" not in markdown(
+            derived_bundle, derived_bundle.as_manifest()
+        ):
+            raise RuntimeError("Generated DESIGN.md did not distinguish a derived envelope.")
+
+        for component in (
+            ReferenceComponent("direct", None, geometry_basis="direct-source-cad"),
+            ReferenceComponent("derived", None, geometry_basis="source-derived-envelope"),
+        ):
+            if not any(f.code == "reference.geometry-basis-missing-source" for f in component.validate()):
+                raise RuntimeError("Source-backed geometry without source_id was accepted.")
+        invalid_basis = ReferenceComponent("invalid", None, geometry_basis="looks-exact")
+        if not any(f.code == "reference.invalid-geometry-basis" for f in invalid_basis.validate()):
+            raise RuntimeError("An unknown reference geometry basis was accepted.")
+        for component in (
+            ReferenceComponent("measured", None, geometry_basis="measured-envelope"),
+            ReferenceComponent("nominal", None, geometry_basis="nominal-envelope"),
+        ):
+            if any(f.severity >= Severity.BLOCKING for f in component.validate()):
+                raise RuntimeError("Measured or nominal geometry incorrectly required provenance.")
+
+        print_candidate_record = DesignRecord(
+            intent="Check stage-based readiness.",
+            requirements=[FunctionalRequirement(
+                "geometry",
+                "The applicable CAD geometry is checked.",
+                status="cad-checked",
+                verification_method="Numeric geometry checks",
+            )],
+            readiness="print-ready",
+        )
+        caution_bundle = DesignBundle(
+            "caution-ready",
+            [DesignPart("part", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"part"}),
+            findings=[Finding("structure.disclosed-caution", Severity.CAUTION, "Disclosed caution.")],
+            design_record=print_candidate_record,
+        )
+        caution_manifest = caution_bundle.as_manifest()
+        if not caution_manifest["readiness"]["print_ready"]:
+            raise RuntimeError("A disclosed caution automatically prevented print-ready.")
+        if not any(item["severity"] == "CAUTION" for item in caution_manifest["findings"]):
+            raise RuntimeError("A caution disappeared from generated findings.")
+
+        likely_record = DesignRecord(
+            intent="Keep useful concept work available.",
+            requirements=[FunctionalRequirement(
+                "geometry",
+                "The applicable CAD geometry is checked.",
+                status="cad-checked",
+                verification_method="Numeric geometry checks",
+            )],
+            readiness="concept-ready",
+        )
+        likely_bundle = DesignBundle(
+            "likely-concept",
+            [DesignPart("part", None, "flat", "PLA", print_plan=safe_print_plan)],
+            AssemblyGraph({"part"}),
+            findings=[Finding("structure.thin-floor", Severity.LIKELY_FAILURE, "Floor is likely to fail.")],
+            design_record=likely_record,
+        )
+        likely_manifest = likely_bundle.as_manifest()
+        if not likely_manifest["readiness"]["concept_ready"] or likely_manifest["readiness"]["print_ready"]:
+            raise RuntimeError("LIKELY_FAILURE did not preserve concept work while preventing print-ready.")
+        likely_bundle.design_record.readiness = "print-ready"
+        if not any(f.code == "readiness.unsupported-claim" for f in likely_bundle.validate_metadata()):
+            raise RuntimeError("A LIKELY_FAILURE was allowed to support a print-ready claim.")
 
         confirmed_record = DesignRecord(
             intent="Confirm representative function.",
@@ -441,6 +539,7 @@ def main() -> int:
                     position_mm=(1.0, 2.0, 3.0),
                     rotation_deg=(0.0, 0.0, 90.0),
                     nominal_size_mm=(25.0, 40.0, 10.0),
+                    geometry_basis="measured-envelope",
                 )
             ],
         )
@@ -490,6 +589,7 @@ def main() -> int:
                     "position_mm": [1, 2, 3],
                     "rotation_deg": [0, 0, 90],
                     "nominal_size_mm": [25, 40, 10],
+                    "geometry_basis": "measured-envelope",
             }),
             "--annotation",
             json.dumps(annotation.as_dict()),
@@ -519,6 +619,8 @@ def main() -> int:
         preview_reference = preview_manifest["references"][0]
         if preview_reference["role"] != "reference" or preview_reference["position_mm"] != [1.0, 2.0, 3.0]:
             raise RuntimeError("Preview reference component transform is missing.")
+        if preview_reference["geometry_basis"] != "measured-envelope":
+            raise RuntimeError("Preview reference component geometry basis is missing.")
         if not preview_reference["file"].startswith("models/ref-"):
             raise RuntimeError("Reference component was not isolated from printable part naming.")
 
@@ -818,6 +920,9 @@ def main() -> int:
         explicit_plan = resolve_output_plan(source, explicit)
         if explicit_plan.path != explicit.resolve() or explicit_plan.mode != "explicit":
             raise RuntimeError("Explicit output directory was not preserved.")
+        repeated_plan = resolve_output_plan(source, explicit)
+        if repeated_plan.path != explicit_plan.path or repeated_plan.path.name != "chosen-output":
+            raise RuntimeError("Repeated generation invented a numbered revision directory.")
 
         standalone = root / "standalone" / "part.py"
         standalone.parent.mkdir()

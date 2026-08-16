@@ -205,6 +205,11 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
             lines.append("- No additional hardware recorded.")
         for item in additional_hardware:
             lines.append(f"- {item}")
+        interface_dispositions = record.get("interface_dispositions", {})
+        if interface_dispositions:
+            lines.extend(["", "### Onboard interface dispositions", ""])
+            for interface, disposition in sorted(interface_dispositions.items()):
+                lines.append(f"- {interface}: {disposition}")
         lines.append("")
     lines.extend(["## Process assumptions", ""])
     for key, value in manifest.get("assumptions", {}).items():  # type: ignore[union-attr]
@@ -232,9 +237,21 @@ def markdown(bundle: object, manifest: dict[str, object]) -> str:
     reference_components = manifest.get("reference_components", [])
     if reference_components:
         lines.extend(["## Non-printable reference components", ""])
+        basis_wording = {
+            "direct-source-cad": "Used the manufacturer CAD directly as non-printable reference geometry.",
+            "source-derived-envelope": "Built a simplified reference envelope checked against the linked source CAD or drawing.",
+            "measured-envelope": "Built the reference geometry from physical measurements.",
+            "nominal-envelope": "Used provisional nominal reference geometry.",
+        }
         for component in reference_components:  # type: ignore[union-attr]
             lines.append(f"### {component['name']}")
             lines.append("")
+            geometry_basis = component.get("geometry_basis", "nominal-envelope")
+            lines.append(f"- Geometry basis: {geometry_basis}")
+            lines.append(
+                "- Source-fidelity statement: "
+                + basis_wording.get(geometry_basis, "Unknown geometry basis; do not make a source-fidelity claim.")
+            )
             lines.append(f"- Position: {component['position_mm']} mm")
             lines.append(f"- Rotation: {component['rotation_deg']} degrees")
             if component.get("nominal_size_mm"):
@@ -433,6 +450,7 @@ def worker(model: Path, output: Path, output_policy: dict[str, object]) -> int:
                         ),
                         "notes": component.notes,
                         "source_id": component.source_id,
+                        "geometry_basis": component.geometry_basis,
                     }
                 ),
             ]

@@ -8,6 +8,8 @@ Use the smallest workflow that matches the risk. A simple one-piece part needs t
 
 Start from information already available in the request, attachments, drawings, listings, and editable source. Extract useful dimensions before asking questions. Keep all supplied dimensions in one simple measurement map. Do not split them into nominal, measured, estimated, or provisional classes.
 
+Ask blocking or materially useful questions directly to the end user. Do not tell an operator which questions to ask unless the user explicitly requested an agent handoff, operator script, or delegated workflow. For example: “Which exact ESP32 board or product link are you using? Which connectors or controls must remain accessible, and how should the enclosure reopen?”
+
 Resolve the exact product, variant, and hardware revision before treating a family name such as “ESP32” as fit-controlling truth. If the identity is not recoverable from an attached link, photo, handoff, or source tree, ask for that identity first. Once identified, research it for the user before asking them to measure it. Use this order:
 
 1. manufacturer product page, documentation, repository, mechanical drawing, or CAD download;
@@ -78,7 +80,9 @@ Record each design decision and its reason plainly. Do not infer that a request 
 
 Do not ask for a complete inventory first. Ordinary PLA and a 0.4 mm nozzle are the neutral starting assumption when the request gives no process information.
 
-When a proposal depends on something else, identify the exact item and ask whether it is available before finalizing the dependency. This applies to PETG, ASA, TPU, magnets, machine screws, inserts, nuts, springs, pins, bearings, adhesives, and special tools. Do not ask again for an item that the user already supplied or confirmed.
+When unknown hardware materially changes the geometry, ask once whether the user wants to identify hardware already available or delegate selection of a conventional provisional family. Do not ask again for an item already supplied or confirmed. If the user delegates the choice, parameterize the dimensions, label the item `provisional` or `required-unconfirmed`, record why it was selected, and keep the design concept-ready until the family is confirmed or its critical fit is physically tested. Confirm actual family, dimensions, and availability before print-ready.
+
+Use small `additional_hardware` entries such as `{"item": "heat-set insert", "specification": "M2.5, nominal 4 mm OD", "quantity": 3, "status": "provisional", "reason": "User requested screws and delegated the family."}`. Recommended statuses are `available`, `confirmed`, `provisional`, and `required-unconfirmed`; this is a record, not an inventory system.
 
 When the best mechanism needs unavailable hardware, offer a no-hardware alternative and explain the tradeoff.
 

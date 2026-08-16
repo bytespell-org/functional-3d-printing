@@ -129,6 +129,7 @@ def main() -> int:
                 "nominal_size_mm": reference.get("nominal_size_mm"),
                 "notes": reference.get("notes", []),
                 "source_id": reference.get("source_id"),
+                "geometry_basis": reference.get("geometry_basis", "nominal-envelope"),
                 "sha256": digest,
             }
         )
